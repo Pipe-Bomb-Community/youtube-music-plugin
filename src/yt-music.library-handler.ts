@@ -3,24 +3,20 @@ import {
 	AudioProducerType,
 	LibraryHandler,
 	LibraryHandlerApiContext,
+	StreamAudioProducer,
 	TaskRunContext,
 } from "@sdk";
-import YTMusic from "atexovi-ytmusic-api";
-import PlayDL from "play-dl";
-import { ClientType, Innertube, Platform } from "youtubei.js";
+import { Innertube } from "youtubei.js";
 import Axios from "axios";
 import { Readable } from "stream";
-
-Platform.shim.eval = async (data) => {
-	// This executes the obfuscated YouTube cipher code securely
-	return new Function(data.output)();
-};
+import { spawn } from "child_process";
+import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
 	private api!: LibraryHandlerApiContext;
 
-	constructor(private readonly ytMusic: YTMusic.default) {}
+	constructor(private readonly innertube: Innertube) {}
 
 	getName(): string {
 		return "YouTube Music";
@@ -28,6 +24,89 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 
 	enable(libraryHandlerApiContext: LibraryHandlerApiContext) {
 		this.api = libraryHandlerApiContext;
+	}
+
+	async createStreamAudioProducer(
+		format: YtDlpFormat,
+	): Promise<StreamAudioProducer> {
+		const { headers } = await Axios.head(format.url);
+
+		if (!headers["content-type"] || !headers["content-length"]) {
+			throw new Error("Missing headers");
+		}
+
+		const mimeType = headers["content-type"].toString();
+		const size = parseInt(headers["content-length"].toString());
+
+		if (isNaN(size)) {
+			throw new Error("Invalid content-length");
+		}
+
+		let duration: number | null = null;
+
+		return {
+			type: "stream",
+			cacheable: true,
+			getDuration: async () => {
+				if (duration !== null) {
+					return duration;
+				}
+				return await new Promise<number>((resolve, reject) => {
+					const child = spawn("ffprobe", [
+						"-v",
+						"error",
+						"-show_entries",
+						"format=duration",
+						"-of",
+						"default=noprint_wrappers=1:nokey=1",
+						format.url,
+					]);
+
+					child.stderr.on("data", (chunk: Buffer) => {
+						console.error(`[FFprobe] ${chunk.toString()}`);
+					});
+
+					let output = "";
+
+					child.stdout.on("data", (chunk: Buffer) => {
+						output += chunk.toString();
+					});
+
+					child.on("close", (code) => {
+						if (code) {
+							reject(new Error(`Exited with code ${code}`));
+						} else {
+							const computedDuration = parseFloat(output.trim());
+							if (isNaN(computedDuration)) {
+								reject(new Error(`Invalid duration`));
+							} else {
+								duration = computedDuration;
+								resolve(computedDuration);
+							}
+						}
+					});
+				});
+			},
+			getMetadata: async () => ({
+				mimeType,
+				size,
+			}),
+			getStream: async () => {
+				const { data } = await Axios.get<Readable>(format.url, {
+					responseType: "stream",
+				});
+				return data;
+			},
+			getPart: async (start, end) => {
+				const { data } = await Axios.get<Readable>(format.url, {
+					responseType: "stream",
+					headers: {
+						range: `bytes=${start}-${end}`,
+					},
+				});
+				return data;
+			},
+		};
 	}
 
 	async getAudioProducer(
@@ -38,60 +117,101 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			return null;
 		}
 
-		console.log("Creating innertube...");
-		const yt = await Innertube.create({
-			client_type: ClientType.TV_EMBEDDED,
-			enable_session_cache: true,
-		}); // todo: setup on enable
+		const response = await new Promise<YtDlpResponse>((resolve, reject) => {
+			const child = spawn(
+				`yt-dlp`,
+				[
+					"--dump-json",
+					"--format",
+					"bestaudio",
+					`https://youtube.com/watch?v=${trackId}`,
+				],
+				{},
+			);
 
-		console.log("Getting video info...");
-		const videoInfo = await yt.music.getInfo(trackId);
-		console.log("Video Info:", videoInfo);
+			child.stderr.on("data", (chunk: Buffer) =>
+				console.log(`[YT-DLP]:`, chunk.toString()),
+			);
 
-		const format = videoInfo.chooseFormat({
-			type: "audio",
-			quality: "best",
+			let output = "";
+			child.stdout.on("data", (chunk: Buffer) => {
+				output += chunk.toString();
+			});
+
+			child.on("close", (code) => {
+				if (code) {
+					reject(new Error(`Exited with code ${code}`));
+				} else {
+					try {
+						resolve(JSON.parse(output));
+					} catch {
+						reject(new Error("Returned invalid JSON"));
+					}
+				}
+			});
 		});
 
-		console.log("Format:", format);
+		console.log(`Found ${response.formats.length} formats`);
+		const supportedFormats = response.formats
+			.filter((format) => {
+				if (!format.acodec || format.acodec == "none") {
+					return false;
+				}
 
-		if (!format) {
-			throw new Error(`No suitable audio format found for video "${trackId}"`);
+				if (format.vcodec && format.vcodec != "none") {
+					return false;
+				}
+
+				if (format.protocol.includes("m3u8")) {
+					return false; // todo: support
+				}
+
+				if (format.has_drm) {
+					return false;
+				}
+
+				return true;
+			})
+			.sort((a, b) => {
+				const abrDiff = (b.abr ?? 0) - (a.abr ?? 0);
+				if (abrDiff) {
+					return abrDiff;
+				}
+
+				const asrDiff = (b.asr ?? 0) - (a.asr ?? 0);
+				if (asrDiff) {
+					return asrDiff;
+				}
+
+				const codecScore = (codec: string) => {
+					if (codec.includes("opus")) {
+						return 3;
+					}
+					if (codec.includes("mp4a")) {
+						return 2;
+					}
+					return 1;
+				};
+
+				return codecScore(b.acodec) - codecScore(a.acodec);
+			});
+
+		console.log(`Found ${supportedFormats.length} supported formats`);
+		// console.log(supportedFormats);
+
+		for (const [index, format] of supportedFormats.entries()) {
+			try {
+				if (format.url) {
+					return await this.createStreamAudioProducer(format);
+				}
+			} catch (e) {
+				if (index == supportedFormats.length - 1) {
+					throw e;
+				}
+			}
 		}
 
-		return {
-			cacheable: true,
-			type: "stream",
-			getDuration: async () => format.approx_duration_ms / 1000,
-			getMetadata: async () => {
-				if (!format.content_length) {
-					throw new Error("No content length");
-				}
-				return {
-					size: format.content_length,
-					mimeType: format.mime_type,
-				};
-			},
-			getStream: async () => {
-				console.log(format);
-				const stream = await videoInfo.download({
-					type: "audio",
-					quality: "best",
-				});
-				return Readable.fromWeb(stream);
-			},
-			getPart: async (start, end) => {
-				const stream = await videoInfo.download({
-					type: "audio",
-					quality: "best",
-					range: {
-						start,
-						end,
-					},
-				});
-				return Readable.fromWeb(stream);
-			},
-		};
+		throw new Error("No supported formats");
 	}
 
 	async scan(taskRunContext: TaskRunContext): Promise<void> {}

@@ -11,8 +11,6 @@ import {
 	TrackAttributionHelper,
 	TrackMetadata,
 } from "@sdk";
-import YTMusic, { AlbumDetailed, ArtistFull } from "atexovi-ytmusic-api";
-import { extname } from "path";
 import Axios from "axios";
 import { YTMArtistStub, YTMSong, YTMThumbnail } from "./types.js";
 
@@ -20,7 +18,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 	readonly id = "youtube-music";
 	private api!: AttributeSourceApiContext;
 
-	constructor(private readonly ytMusic: YTMusic.default) {}
+	constructor() {}
 
 	enable(attributeSourceApiContext: AttributeSourceApiContext): void {
 		this.api = attributeSourceApiContext;
@@ -54,6 +52,11 @@ export class YTMusicAttributeSource implements AttributeSource {
 				type: "buffer",
 				supportsMultiple: false,
 			},
+			{
+				key: "background",
+				type: "buffer",
+				supportsMultiple: false,
+			},
 		]);
 
 		this.api.registerAlbumAttributes([
@@ -79,66 +82,6 @@ export class YTMusicAttributeSource implements AttributeSource {
 		return "YouTube Music";
 	}
 
-	toTrackMetadata(song: YTMSong): TrackMetadata {
-		const attributes: AttributeValue[] = [];
-
-		if (song.name) {
-			attributes.push({
-				key: "title",
-				value: song.name,
-			});
-		}
-
-		if (song.duration) {
-			attributes.push({
-				key: "duration",
-				value: song.duration,
-			});
-		}
-
-		if (song.thumbnails?.length) {
-			attributes.push({
-				key: "front",
-				value: this.toThumbnailAttribute(song.thumbnails),
-			});
-		}
-
-		const artists: IdentifiableTrackArtistMetadata[] = [];
-		if (song.artist?.artistId && song.artist.name) {
-			artists.push({
-				...this.toMinimalArtistMetadata(song.artist),
-				pluginId: "youtube-music",
-				identityId: "youtube_music_artist_id",
-				identity: song.artist.artistId,
-			});
-		}
-
-		return {
-			artists,
-			attributes,
-		};
-	}
-
-	toArtistMetadata(artist: ArtistFull): ArtistMetadata {
-		const attributes: AttributeValue[] = [];
-
-		if (artist.name) {
-			attributes.push({
-				key: "name",
-				value: artist.name,
-			});
-		}
-
-		if (artist.thumbnails?.length) {
-			attributes.push({
-				key: "thumb",
-				value: this.toThumbnailAttribute(artist.thumbnails),
-			});
-		}
-
-		return { attributes };
-	}
-
 	toMinimalArtistMetadata(
 		artistStub: YTMArtistStub,
 		thumbnails?: YTMThumbnail[],
@@ -156,44 +99,6 @@ export class YTMusicAttributeSource implements AttributeSource {
 		}
 
 		return { attributes };
-	}
-
-	toAlbumMetadata(album: AlbumDetailed): AlbumMetadata {
-		const attributes: AttributeValue[] = [];
-
-		if (album.name) {
-			attributes.push({
-				key: "title",
-				value: album.name,
-			});
-		}
-		if (album.thumbnails?.length) {
-			attributes.push({
-				key: "front",
-				value: this.toThumbnailAttribute(album.thumbnails),
-			});
-		}
-		if (album.year) {
-			attributes.push({
-				key: "year",
-				value: album.year,
-			});
-		}
-
-		const artists: IdentifiableTrackArtistMetadata[] = [];
-		if (album.artist?.artistId && album.artist.name) {
-			artists.push({
-				...this.toMinimalArtistMetadata(album.artist),
-				pluginId: "youtube-music",
-				identityId: "youtube_music_artist_id",
-				identity: album.artist.artistId,
-			});
-		}
-
-		return {
-			attributes,
-			artists,
-		};
 	}
 
 	toThumbnailAttribute(thumbnails: YTMThumbnail[]): BufferAttributeValue {

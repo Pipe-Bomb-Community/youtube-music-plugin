@@ -1,8 +1,9 @@
 import type PipeBomb from "@sdk";
-import YTMusic from "atexovi-ytmusic-api";
 import { YTMusicLibraryHandler } from "./yt-music.library-handler.js";
 import { YTMusicEphemeralSource } from "./yt-music.ephemeral-source.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";
+import Innertube, { ClientType, UniversalCache } from "youtubei.js";
+import path from "path";
 
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
@@ -13,16 +14,20 @@ export default class Plugin implements PipeBomb.Plugin {
 		this.logger = apiContext.getLogger();
 
 		this.api.registerLanguageDirectory("language");
-		this.api.registerIconDirectory("icons");
+		// this.api.registerIconDirectory("icons");
 
-		const ytMusic = new YTMusic.default();
-		ytMusic.initialize().then(() => {
-			const libraryHandler = new YTMusicLibraryHandler(ytMusic);
-			const attributeSource = new YTMusicAttributeSource(ytMusic);
+		this.api.requestCacheDirectory().then(async (cacheDir) => {
+			const innertube = await Innertube.create({
+				client_type: ClientType.MWEB,
+				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
+			});
+
+			const libraryHandler = new YTMusicLibraryHandler(innertube);
+			const attributeSource = new YTMusicAttributeSource();
 			const ephemeralSource = new YTMusicEphemeralSource(
 				libraryHandler,
 				attributeSource,
-				ytMusic,
+				innertube,
 			);
 
 			this.api.registerLibraryHandler(libraryHandler);
