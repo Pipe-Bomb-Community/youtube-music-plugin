@@ -221,17 +221,21 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	async search(
 		options: EphemeralSourceSearchOptions,
 	): Promise<EphemeralSourceSearchResults> {
-		const [songResults, artistResults, albumResults] = await Promise.all([
-			this.innertube.music.search(options.query, {
-				type: "song",
-			}),
-			this.innertube.music.search(options.query, {
-				type: "artist",
-			}),
-			this.innertube.music.search(options.query, {
-				type: "album",
-			}),
-		]);
+		const [songResults, artistResults, albumResults, playlistResults] =
+			await Promise.all([
+				this.innertube.music.search(options.query, {
+					type: "song",
+				}),
+				this.innertube.music.search(options.query, {
+					type: "artist",
+				}),
+				this.innertube.music.search(options.query, {
+					type: "album",
+				}),
+				this.innertube.music.search(options.query, {
+					type: "playlist",
+				}),
+			]);
 
 		const tracks: EphemeralTrack[] = [];
 		const albums: IdentifiableAlbumMetadata[] = [];
@@ -280,6 +284,52 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			}
 		});
 
+		this.forSearchResults(playlistResults.contents, (item) => {
+			if (!item.id || !item.title) {
+				return;
+			}
+
+			const attributes: AttributeValue[] = [
+				{
+					key: "title",
+					value: item.title,
+				},
+			];
+
+			if (item.thumbnail) {
+				attributes.push({
+					key: "front",
+					value: this.attributeSource.toThumbnailAttribute(
+						item.thumbnail.contents,
+					),
+				});
+			}
+
+			const artists: IdentifiableTrackArtistMetadata[] = [];
+
+			if (item.author?.channel_id) {
+				artists.push({
+					pluginId: "youtube-music",
+					identityId: "youtube_music_user_id",
+					identity: item.author.channel_id,
+					attributes: [
+						{
+							key: "name",
+							value: item.author.name,
+						},
+					],
+				});
+			}
+
+			albums.push({
+				pluginId: "youtube-music",
+				identityId: "youtube_music_playlist_id",
+				identity: item.id,
+				artists,
+				attributes,
+			});
+		});
+
 		return {
 			tracks,
 			albums,
@@ -287,15 +337,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		};
 	}
 
-	async resolveArtist(
-		identityId: string,
-		identity: string,
+	private async resolveArtistAsArtist(
+		artistId: string,
 	): Promise<ArtistMetadata | null> {
-		if (identityId != "youtube_music_artist_id") {
-			return null;
-		}
-
-		const result = await this.innertube.music.getArtist(identity);
+		const result = await this.innertube.music.getArtist(artistId);
 
 		const attributes: AttributeValue[] = [];
 
@@ -318,6 +363,27 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		}
 
 		return { attributes };
+	}
+
+	private async resolveUserAsArtist(
+		userId: string,
+	): Promise<ArtistMetadata | null> {
+		throw new Error("Not implemented");
+	}
+
+	async resolveArtist(
+		identityId: string,
+		identity: string,
+	): Promise<ArtistMetadata | null> {
+		if (identityId == "youtube_music_artist_id") {
+			return this.resolveArtistAsArtist(identity);
+		}
+
+		if (identityId == "youtube_music_user_id") {
+			return this.resolveUserAsArtist(identity);
+		}
+
+		return null;
 	}
 
 	async resolveArtistContent(
@@ -416,15 +482,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		return artists;
 	}
 
-	async resolveAlbum(
-		identityId: string,
-		identity: string,
+	private async resolveAlbumAsAlbum(
+		albumId: string,
 	): Promise<AlbumMetadata | null> {
-		if (identityId !== "youtube_music_album_id") {
-			return null;
-		}
-
-		const album = await this.innertube.music.getAlbum(identity);
+		const album = await this.innertube.music.getAlbum(albumId);
 		const header = album.header;
 
 		const attributes: AttributeValue[] = [];
@@ -458,15 +519,59 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		};
 	}
 
-	async resolveAlbumContent(
-		identityId: string,
-		identity: string,
-	): Promise<EphemeralAlbumContent | null> {
-		if (identityId != "youtube_music_album_id") {
-			return null;
+	private async resolvePlaylistAsAlbum(
+		playlistId: string,
+	): Promise<AlbumMetadata | null> {
+		const playlist = await this.innertube.music.getPlaylist(playlistId);
+
+		const header = playlist.header;
+
+		const attributes: AttributeValue[] = [];
+		const artists: IdentifiableTrackArtistMetadata[] = [];
+		if (header?.is(YTNodes.MusicResponsiveHeader)) {
+			if (header.title.text) {
+				attributes.push({
+					key: "title",
+					value: header.title.text,
+				});
+			}
+
+			if (header.is(YTNodes.MusicResponsiveHeader)) {
+				if (header.thumbnail) {
+					attributes.push({
+						key: "front",
+						value: this.attributeSource.toThumbnailAttribute(
+							header.thumbnail.contents,
+						),
+					});
+				}
+			}
 		}
 
-		const album = await this.innertube.music.getAlbum(identity);
+		return {
+			artists,
+			attributes,
+		};
+	}
+
+	async resolveAlbum(
+		identityId: string,
+		identity: string,
+	): Promise<AlbumMetadata | null> {
+		if (identityId == "youtube_music_album_id") {
+			return this.resolveAlbumAsAlbum(identity);
+		}
+		if (identityId == "youtube_music_playlist_id") {
+			return this.resolvePlaylistAsAlbum(identity);
+		}
+
+		return null;
+	}
+
+	private async resolveAlbumAsAlbumContent(
+		albumId: string,
+	): Promise<EphemeralAlbumContent | null> {
+		const album = await this.innertube.music.getAlbum(albumId);
 		const tracks: EphemeralTrack[] = [];
 
 		let thumbnail: BufferAttributeValue | null = null;
@@ -510,6 +615,55 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		return {
 			tracks,
 		};
+	}
+
+	private async resolvePlaylistAsAlbumContent(
+		playlistId: string,
+	): Promise<EphemeralAlbumContent | null> {
+		let playlist = await this.innertube.music.getPlaylist(playlistId);
+		const tracks: EphemeralTrack[] = [];
+
+		while (playlist) {
+			const items = playlist.contents ?? [];
+			for (const item of items) {
+				if (item.is(YTNodes.ContinuationItem)) {
+					continue;
+				}
+
+				if (item.item_type != "song" && item.item_type != "video") {
+					continue;
+				}
+
+				const track = this.listItemToTrack(item);
+				if (track) {
+					tracks.push(track);
+				}
+			}
+
+			if (!playlist.has_continuation) {
+				break;
+			}
+			playlist = await playlist.getContinuation();
+		}
+
+		return {
+			tracks,
+		};
+	}
+
+	async resolveAlbumContent(
+		identityId: string,
+		identity: string,
+	): Promise<EphemeralAlbumContent | null> {
+		if (identityId == "youtube_music_album_id") {
+			return this.resolveAlbumAsAlbumContent(identity);
+		}
+
+		if (identityId == "youtube_music_playlist_id") {
+			return this.resolvePlaylistAsAlbumContent(identity);
+		}
+
+		return null;
 	}
 
 	resolveTracks(trackIds: string[]): Promise<EphemeralTrack[]> {
