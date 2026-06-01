@@ -18,7 +18,7 @@ import {
 } from "@sdk";
 import { YTMusicLibraryHandler } from "./yt-music.library-handler.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";
-import Innertube, { YTNodes } from "youtubei.js";
+import Innertube, { Parser, YTNodes } from "youtubei.js";
 
 export class YTMusicEphemeralSource implements EphemeralSource {
 	readonly id = "youtube-music";
@@ -74,7 +74,23 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	private listItemToTrack(
 		item: YTNodes.MusicResponsiveListItem,
 	): EphemeralTrack | null {
-		if (!item.id || !item.title) {
+		if (!item.title) {
+			return null;
+		}
+
+		let id: string | null = item.id ?? null;
+		if (!id) {
+			for (const flexColumn of item.flex_columns) {
+				if (flexColumn.title.text == item.title) {
+					const videoId = flexColumn.title.endpoint?.payload?.videoId;
+					if (videoId) {
+						id = videoId;
+					}
+				}
+			}
+		}
+
+		if (!id) {
 			return null;
 		}
 
@@ -119,12 +135,12 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		}
 
 		return {
-			id: item.id,
+			id,
 			title: item.title,
 			attributes,
 			artists,
 			identityId: "youtube_music_track_id",
-			identity: item.id,
+			identity: id,
 		};
 	}
 
@@ -371,7 +387,43 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	private async resolveUserAsArtist(
 		userId: string,
 	): Promise<ArtistMetadata | null> {
-		throw new Error("Not implemented");
+		const result = await this.innertube.actions.execute("/browse", {
+			browseId: userId,
+			client: "YTMUSIC",
+		});
+
+		const attributes: AttributeValue[] = [];
+
+		if (result.data.header) {
+			const parsedNode = Parser.parse(result.data.header).item();
+			if (parsedNode.is(YTNodes.MusicVisualHeader)) {
+				if (parsedNode.title.text) {
+					attributes.push({
+						key: "name",
+						value: parsedNode.title.text,
+					});
+				}
+
+				if (parsedNode.foreground_thumbnail) {
+					attributes.push({
+						key: "thumb",
+						value: this.attributeSource.toThumbnailAttribute(
+							parsedNode.foreground_thumbnail,
+						),
+					});
+				}
+				if (parsedNode.thumbnail) {
+					attributes.push({
+						key: "background",
+						value: this.attributeSource.toThumbnailAttribute(
+							parsedNode.thumbnail,
+						),
+					});
+				}
+			}
+		}
+
+		return { attributes };
 	}
 
 	async resolveArtist(
@@ -389,15 +441,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		return null;
 	}
 
-	async resolveArtistContent(
-		identityId: string,
-		identity: string,
+	private async resolveArtistAsArtistContent(
+		artistId: string,
 	): Promise<EphemeralArtistContent | null> {
-		if (identityId !== "youtube_music_artist_id") {
-			return null;
-		}
-
-		const artist = await this.innertube.music.getArtist(identity);
+		const artist = await this.innertube.music.getArtist(artistId);
 
 		const tracks: EphemeralTrack[] = [];
 		const albums: IdentifiableAlbumMetadata[] = [];
@@ -432,6 +479,83 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			tracks,
 			albums,
 		};
+	}
+
+	private async resolveUserAsArtistContent(
+		userId: string,
+	): Promise<EphemeralArtistContent | null> {
+		const result = await this.innertube.actions.execute("/browse", {
+			browseId: userId,
+			client: "YTMUSIC",
+		});
+
+		const albums: IdentifiableAlbumMetadata[] = [];
+
+		if (result.data.contents) {
+			const parsedNode = Parser.parse(result.data.contents).item();
+			if (parsedNode.is(YTNodes.SingleColumnBrowseResults)) {
+				for (const tab of parsedNode.tabs) {
+					if (tab.content?.is(YTNodes.SectionList)) {
+						for (const shelf of tab.content.contents) {
+							if (shelf.is(YTNodes.MusicCarouselShelf)) {
+								for (const item of shelf.contents) {
+									if (item.is(YTNodes.MusicTwoRowItem)) {
+										const album = this.twoRowItemToAlbum(item);
+										if (album) {
+											album.identityId = "youtube_music_playlist_id";
+
+											if (item.subtitle) {
+												for (const run of item.subtitle.runs ?? []) {
+													const artistId = (run as any)
+														.endpoint as YTNodes.NavigationEndpoint;
+													if (artistId?.payload?.browseId) {
+														album.artists = [
+															{
+																pluginId: "youtube-music",
+																identityId: "youtube_music_user_id",
+																identity: artistId.payload.browseId,
+																attributes: [
+																	{
+																		key: "name",
+																		value: run.text,
+																	},
+																],
+															},
+														];
+													}
+												}
+											}
+
+											albums.push(album);
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return {
+			albums,
+			tracks: [],
+		};
+	}
+
+	async resolveArtistContent(
+		identityId: string,
+		identity: string,
+	): Promise<EphemeralArtistContent | null> {
+		if (identityId == "youtube_music_artist_id") {
+			return this.resolveArtistAsArtistContent(identity);
+		}
+
+		if (identityId == "youtube_music_user_id") {
+			return this.resolveUserAsArtistContent(identity);
+		}
+
+		return null;
 	}
 
 	private toAlbumArtists(
@@ -525,28 +649,72 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	private async resolvePlaylistAsAlbum(
 		playlistId: string,
 	): Promise<AlbumMetadata | null> {
-		const playlist = await this.innertube.music.getPlaylist(playlistId);
-
-		const header = playlist.header;
+		const result = await this.innertube.actions.execute("/browse", {
+			browseId: playlistId,
+			client: "YTMUSIC",
+		});
 
 		const attributes: AttributeValue[] = [];
 		const artists: IdentifiableTrackArtistMetadata[] = [];
-		if (header?.is(YTNodes.MusicResponsiveHeader)) {
-			if (header.title.text) {
-				attributes.push({
-					key: "title",
-					value: header.title.text,
-				});
-			}
 
-			if (header.is(YTNodes.MusicResponsiveHeader)) {
-				if (header.thumbnail) {
-					attributes.push({
-						key: "front",
-						value: this.attributeSource.toThumbnailAttribute(
-							header.thumbnail.contents,
-						),
-					});
+		if (result.data.contents) {
+			const parsedNode = Parser.parse(result.data.contents).item();
+			if (parsedNode.is(YTNodes.TwoColumnBrowseResults)) {
+				for (const [tabIndex, tab] of parsedNode.tabs.entries()) {
+					if (tab.content?.is(YTNodes.SectionList)) {
+						for (const [
+							tabContentIndex,
+							content,
+						] of tab.content.contents.entries()) {
+							if (content.is(YTNodes.MusicResponsiveHeader)) {
+								if (content.title.text) {
+									attributes.push({
+										key: "title",
+										value: content.title.text,
+									});
+								}
+
+								if (content.thumbnail) {
+									attributes.push({
+										key: "front",
+										value: this.attributeSource.toThumbnailAttribute(
+											content.thumbnail.contents,
+										),
+									});
+								}
+
+								const rawHeader = (result.data.contents as any)
+									.twoColumnBrowseResultsRenderer?.tabs?.[tabIndex]?.tabRenderer
+									?.content.sectionListRenderer?.contents?.[tabContentIndex]
+									?.musicResponsiveHeaderRenderer;
+
+								if (rawHeader) {
+									const facepile = rawHeader.facepile;
+
+									const userName: string | undefined =
+										facepile?.avatarStackViewModel.text?.content;
+									const userId: string | undefined =
+										facepile?.avatarStackViewModel.rendererContext
+											?.commandContext?.onTap?.innertubeCommand?.browseEndpoint
+											?.browseId;
+
+									if (userName && userId) {
+										artists.push({
+											pluginId: "youtube-music",
+											identityId: "youtube_music_user_id",
+											identity: userId,
+											attributes: [
+												{
+													key: "name",
+													value: userName,
+												},
+											],
+										});
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}

@@ -151,7 +151,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			});
 		});
 
-		console.log(`Found ${response.formats.length} formats`);
+		// console.log(`Found ${response.formats.length} formats`);
 		const supportedFormats = response.formats
 			.filter((format) => {
 				if (!format.acodec || format.acodec == "none") {
@@ -196,8 +196,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				return codecScore(b.acodec) - codecScore(a.acodec);
 			});
 
-		console.log(`Found ${supportedFormats.length} supported formats`);
-		// console.log(supportedFormats);
+		// console.log(`Found ${supportedFormats.length} supported formats`);
 
 		for (const [index, format] of supportedFormats.entries()) {
 			try {
