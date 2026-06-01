@@ -862,6 +862,18 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 				continue;
 			}
 
+			let id: string | null = info.video_id ?? null;
+			if (!id) {
+				const videoId = info.endpoint.payload?.videoId;
+				if (videoId) {
+					id = videoId;
+				}
+			}
+
+			if (!id) {
+				continue;
+			}
+
 			const attributes: AttributeValue[] = [
 				{
 					key: "duration",
@@ -935,10 +947,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 			tracks.push({
 				identityId: "youtube_music_track_id",
-				identity: info.video_id,
+				identity: id,
 				attributes,
 				artists,
-				id: info.video_id,
+				id,
 				title: info.title.text ?? "Unknown Track",
 			});
 		}
