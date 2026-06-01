@@ -100,7 +100,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 				value: item.title,
 			},
 		];
-		if (item.thumbnail) {
+		if (item.thumbnail?.contents.length) {
 			attributes.push({
 				key: "front",
 				value: this.attributeSource.toThumbnailAttribute(
@@ -153,7 +153,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 		const attributes: AttributeValue[] = [{ key: "title", value: item.title }];
 
-		if (item.thumbnail) {
+		if (item.thumbnail?.contents.length) {
 			attributes.push({
 				key: "front",
 				value: this.attributeSource.toThumbnailAttribute(
@@ -279,7 +279,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 				},
 			];
 
-			if (item.thumbnail) {
+			if (item.thumbnail?.contents.length) {
 				attributes.push({
 					key: "thumb",
 					value: this.attributeSource.toThumbnailAttribute(
@@ -315,7 +315,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 				},
 			];
 
-			if (item.thumbnail) {
+			if (item.thumbnail?.contents.length) {
 				attributes.push({
 					key: "front",
 					value: this.attributeSource.toThumbnailAttribute(
@@ -371,7 +371,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		}
 
 		if (result.header instanceof YTNodes.MusicImmersiveHeader) {
-			if (result.header.thumbnail) {
+			if (result.header.thumbnail?.contents.length) {
 				attributes.push({
 					key: "background",
 					value: this.attributeSource.toThumbnailAttribute(
@@ -404,7 +404,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 					});
 				}
 
-				if (parsedNode.foreground_thumbnail) {
+				if (parsedNode.foreground_thumbnail?.length) {
 					attributes.push({
 						key: "thumb",
 						value: this.attributeSource.toThumbnailAttribute(
@@ -412,7 +412,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 						),
 					});
 				}
-				if (parsedNode.thumbnail) {
+				if (parsedNode.thumbnail?.length) {
 					attributes.push({
 						key: "background",
 						value: this.attributeSource.toThumbnailAttribute(
@@ -629,7 +629,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			artists.push(...this.toAlbumArtists(header));
 
 			if (header.is(YTNodes.MusicResponsiveHeader)) {
-				if (header.thumbnail) {
+				if (header.thumbnail?.contents.length) {
 					attributes.push({
 						key: "front",
 						value: this.attributeSource.toThumbnailAttribute(
@@ -674,7 +674,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 									});
 								}
 
-								if (content.thumbnail) {
+								if (content.thumbnail?.contents.length) {
 									attributes.push({
 										key: "front",
 										value: this.attributeSource.toThumbnailAttribute(
@@ -750,7 +750,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 		const header = album.header;
 		if (header?.is(YTNodes.MusicResponsiveHeader)) {
-			if (header.thumbnail) {
+			if (header.thumbnail?.contents.length) {
 				thumbnail = this.attributeSource.toThumbnailAttribute(
 					header.thumbnail.contents,
 				);
@@ -874,7 +874,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 					value: info.title.text,
 				});
 			}
-			if (info.thumbnail) {
+			if (info.thumbnail?.length) {
 				attributes.push({
 					key: "front",
 					value: this.attributeSource.toThumbnailAttribute(info.thumbnail),
