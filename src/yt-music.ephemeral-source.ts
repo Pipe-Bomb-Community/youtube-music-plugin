@@ -649,6 +649,9 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	private async resolvePlaylistAsAlbum(
 		playlistId: string,
 	): Promise<AlbumMetadata | null> {
+		if (!playlistId.startsWith("VL")) {
+			playlistId = `VL${playlistId}`;
+		}
 		const result = await this.innertube.actions.execute("/browse", {
 			browseId: playlistId,
 			client: "YTMUSIC",
