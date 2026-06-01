@@ -1,6 +1,7 @@
 import {
 	AlbumMetadata,
 	ArtistMetadata,
+	Attribute,
 	AttributeValue,
 	BufferAttributeValue,
 	EphemeralAlbumContent,
@@ -41,6 +42,8 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 		this.api.resolveArtistIdentifier("youtube_music_user_id");
 		this.api.resolveAlbumIdentifier("youtube_music_playlist_id");
+
+		this.api.useTrackIdentifier("youtube_music_track_id");
 	}
 
 	getName(): string {
@@ -587,10 +590,14 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			albumArtists.push(...this.toAlbumArtists(header));
 		}
 
+		const ids: string[] = [];
+
 		for (const item of album.contents) {
 			if (item.item_type != "song" && item.item_type != "video") {
 				continue;
 			}
+
+			ids.push(item.id!);
 
 			const track = this.listItemToTrack(item);
 			if (track) {
@@ -666,7 +673,108 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		return null;
 	}
 
-	resolveTracks(trackIds: string[]): Promise<EphemeralTrack[]> {
-		throw new Error("Method not implemented.");
+	async resolveTracks(trackIds: string[]): Promise<EphemeralTrack[]> {
+		const results = await Promise.allSettled(
+			trackIds.map((trackId) =>
+				this.innertube.music
+					.getUpNext(trackId, false)
+					.then((panel) => panel.contents?.[0] ?? null),
+			),
+		);
+
+		const tracks: EphemeralTrack[] = [];
+		for (const result of results) {
+			if (result.status == "rejected") {
+				continue;
+			}
+
+			const info = result.value;
+
+			if (!info || !info.is(YTNodes.PlaylistPanelVideo)) {
+				continue;
+			}
+
+			const attributes: AttributeValue[] = [
+				{
+					key: "duration",
+					value: info.duration.seconds,
+				},
+			];
+			if (info.title.text) {
+				attributes.push({
+					key: "title",
+					value: info.title.text,
+				});
+			}
+			if (info.thumbnail) {
+				attributes.push({
+					key: "front",
+					value: this.attributeSource.toThumbnailAttribute(info.thumbnail),
+				});
+			}
+			if (info.album?.year) {
+				const year = parseInt(info.album.year);
+				if (!isNaN(year)) {
+					attributes.push({
+						key: "year",
+						value: year,
+					});
+				}
+			}
+
+			const artists: IdentifiableTrackArtistMetadata[] = [];
+			if (info.artists) {
+				let artistString = info.author;
+				for (const [i, artist] of info.artists.entries()) {
+					let joinPhrase: string | null = null;
+
+					const currentIndex = artistString.indexOf(artist.name);
+					if (currentIndex >= 0) {
+						artistString = artistString.substring(
+							currentIndex + artist.name.length,
+						);
+
+						if (i == info.artists.length - 1) {
+							joinPhrase = artistString;
+						} else {
+							const nextArtistName = info.artists[i + 1]!.name;
+							const nextIndex = artistString.indexOf(nextArtistName);
+							if (nextIndex >= 0) {
+								joinPhrase = artistString.substring(0, nextIndex);
+								artistString = artistString.substring(nextIndex);
+							}
+						}
+					}
+
+					if (!artist.channel_id) {
+						continue;
+					}
+
+					artists.push({
+						pluginId: "youtube-music",
+						identityId: "youtube_music_artist_id",
+						identity: artist.channel_id,
+						joinPhrase,
+						attributes: [
+							{
+								key: "name",
+								value: artist.name,
+							},
+						],
+					});
+				}
+			}
+
+			tracks.push({
+				identityId: "youtube_music_track_id",
+				identity: info.video_id,
+				attributes,
+				artists,
+				id: info.video_id,
+				title: info.title.text ?? "Unknown Track",
+			});
+		}
+
+		return tracks;
 	}
 }

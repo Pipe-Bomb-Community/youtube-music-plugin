@@ -7,12 +7,11 @@ import {
 	AttributeSourceApiContext,
 	AttributeValue,
 	BufferAttributeValue,
-	IdentifiableTrackArtistMetadata,
 	TrackAttributionHelper,
 	TrackMetadata,
 } from "@sdk";
 import Axios from "axios";
-import { YTMArtistStub, YTMSong, YTMThumbnail } from "./types.js";
+import { YTMArtistStub, YTMThumbnail } from "./types.js";
 
 export class YTMusicAttributeSource implements AttributeSource {
 	readonly id = "youtube-music";
@@ -37,6 +36,11 @@ export class YTMusicAttributeSource implements AttributeSource {
 			{
 				key: "front",
 				type: "buffer",
+				supportsMultiple: false,
+			},
+			{
+				key: "year",
+				type: "integer",
 				supportsMultiple: false,
 			},
 		]);

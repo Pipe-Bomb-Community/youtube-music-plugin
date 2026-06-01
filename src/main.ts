@@ -4,6 +4,8 @@ import { YTMusicEphemeralSource } from "./yt-music.ephemeral-source.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";
 import Innertube, { ClientType, UniversalCache } from "youtubei.js";
 import path from "path";
+import { TrackIdTrackIdentifier } from "./identity/track-id.track-identifier.js";
+import { ArtistIdTrackIdentifier } from "./identity/artist-id.track-identifier.js";
 
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
@@ -21,6 +23,9 @@ export default class Plugin implements PipeBomb.Plugin {
 				client_type: ClientType.MWEB,
 				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
 			});
+
+			this.api.registerTrackIdentifier(new TrackIdTrackIdentifier());
+			this.api.registerTrackIdentifier(new ArtistIdTrackIdentifier(innertube));
 
 			const libraryHandler = new YTMusicLibraryHandler(innertube);
 			const attributeSource = new YTMusicAttributeSource();
