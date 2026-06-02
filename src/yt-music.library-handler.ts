@@ -103,6 +103,9 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				const { data } = await Axios.get<Readable>(format.url, {
 					responseType: "stream",
 					timeout: 15_000,
+					headers: {
+						...format.http_headers,
+					},
 				});
 
 				const speedo = new PassThrough();
@@ -138,6 +141,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					responseType: "stream",
 					timeout: 15_000,
 					headers: {
+						...format.http_headers,
 						range: `bytes=${start}-${end}`,
 					},
 				});
