@@ -29,7 +29,9 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	async createStreamAudioProducer(
 		format: YtDlpFormat,
 	): Promise<StreamAudioProducer> {
-		const { headers } = await Axios.head(format.url);
+		const { headers } = await Axios.head(format.url, {
+			timeout: 10_000,
+		});
 
 		if (!headers["content-type"] || !headers["content-length"]) {
 			throw new Error("Missing headers");
@@ -62,6 +64,11 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 						format.url,
 					]);
 
+					const timer = setTimeout(() => {
+						child.kill("SIGKILL");
+						reject(new Error("FFprobe timed out"));
+					}, 15_000);
+
 					child.stderr.on("data", (chunk: Buffer) => {
 						console.error(`[FFprobe] ${chunk.toString()}`);
 					});
@@ -73,6 +80,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					});
 
 					child.on("close", (code) => {
+						clearTimeout(timer);
 						if (code) {
 							reject(new Error(`Exited with code ${code}`));
 						} else {
@@ -94,12 +102,14 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			getStream: async () => {
 				const { data } = await Axios.get<Readable>(format.url, {
 					responseType: "stream",
+					timeout: 15_000,
 				});
 				return data;
 			},
 			getPart: async (start, end) => {
 				const { data } = await Axios.get<Readable>(format.url, {
 					responseType: "stream",
+					timeout: 15_000,
 					headers: {
 						range: `bytes=${start}-${end}`,
 					},
@@ -118,16 +128,17 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		}
 
 		const response = await new Promise<YtDlpResponse>((resolve, reject) => {
-			const child = spawn(
-				`yt-dlp`,
-				[
-					"--dump-json",
-					"--format",
-					"bestaudio",
-					`https://youtube.com/watch?v=${trackId}`,
-				],
-				{},
-			);
+			const child = spawn("yt-dlp", [
+				"--dump-json",
+				"--format",
+				"bestaudio",
+				`https://youtube.com/watch?v=${trackId}`,
+			]);
+
+			const timer = setTimeout(() => {
+				child.kill("SIGKILL");
+				reject(new Error("yt-dlp timed out"));
+			}, 25_000);
 
 			child.stderr.on("data", (chunk: Buffer) =>
 				console.log(`[YT-DLP]:`, chunk.toString()),
@@ -139,6 +150,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			});
 
 			child.on("close", (code) => {
+				clearTimeout(timer);
 				if (code) {
 					reject(new Error(`Exited with code ${code}`));
 				} else {
@@ -151,7 +163,6 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			});
 		});
 
-		// console.log(`Found ${response.formats.length} formats`);
 		const supportedFormats = response.formats
 			.filter((format) => {
 				if (!format.acodec || format.acodec == "none") {
