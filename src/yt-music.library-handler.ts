@@ -11,12 +11,16 @@ import Axios from "axios";
 import { Readable, PassThrough } from "stream";
 import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
+import { YTMusicConfigManager } from "./yt-music.settings.js";
 
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
 	private api!: LibraryHandlerApiContext;
 
-	constructor(private readonly innertube: Innertube) {}
+	constructor(
+		private readonly innertube: Innertube,
+		private readonly config: YTMusicConfigManager,
+	) {}
 
 	getName(): string {
 		return "YouTube Music";
@@ -101,23 +105,25 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				size,
 			}),
 			getStream: async () => {
-				const child = spawn(
-					"yt-dlp",
-					[
-						"-f",
-						format.format_id,
-						"-o",
-						"-",
-						"--http-chunk-size",
-						"10M",
-						"--downloader",
-						"native",
-						videoId,
-					],
-					{
-						stdio: [null, "pipe", null],
-					},
-				);
+				const args = [
+					"-f",
+					format.format_id,
+					"-o",
+					"-",
+					"--http-chunk-size",
+					"10M",
+					"--downloader",
+					"native",
+				];
+
+				const extractorArgs = this.config.getExtractorArgs();
+				if (extractorArgs) {
+					args.push("--extractor-args", extractorArgs);
+				}
+
+				const child = spawn("yt-dlp", [...args, videoId], {
+					stdio: [null, "pipe", null],
+				});
 
 				child.stderr.on("data", (chunk: Buffer) => {
 					console.log(`[yt-dlp] ${chunk.toString().trim()}`);
@@ -180,10 +186,15 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		}
 
 		const response = await new Promise<YtDlpResponse>((resolve, reject) => {
+			const args = ["--dump-json", "--format", "bestaudio"];
+
+			const extractorArgs = this.config.getExtractorArgs();
+			if (extractorArgs) {
+				args.push("--extractor-args", extractorArgs);
+			}
+
 			const child = spawn("yt-dlp", [
-				"--dump-json",
-				"--format",
-				"bestaudio",
+				...args,
 				`https://youtube.com/watch?v=${trackId}`,
 			]);
 
