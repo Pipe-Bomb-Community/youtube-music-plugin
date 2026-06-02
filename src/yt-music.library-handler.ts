@@ -28,6 +28,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 
 	async createStreamAudioProducer(
 		format: YtDlpFormat,
+		videoId: string,
 	): Promise<StreamAudioProducer> {
 		const { headers } = await Axios.head(format.url, {
 			timeout: 10_000,
@@ -100,12 +101,32 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				size,
 			}),
 			getStream: async () => {
-				const { data } = await Axios.get<Readable>(format.url, {
-					responseType: "stream",
-					timeout: 15_000,
-					headers: {
-						...format.http_headers,
+				const child = spawn(
+					"yt-dlp",
+					[
+						"-f",
+						format.format_id,
+						"-o",
+						"-",
+						"--http-chunk-size",
+						"10M",
+						"--downloader",
+						"native",
+						videoId,
+					],
+					{
+						stdio: [null, "pipe", null],
 					},
+				);
+
+				child.stderr.on("data", (chunk: Buffer) => {
+					console.log(`[yt-dlp] ${chunk.toString().trim()}`);
+				});
+
+				child.on("close", (code) => {
+					if (code !== 0) {
+						console.error(`yt-dlp exited with code ${code}`);
+					}
 				});
 
 				const speedo = new PassThrough();
@@ -134,7 +155,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					}
 				});
 
-				return data.pipe(speedo);
+				return child.stdout.pipe(speedo);
 			},
 			getPart: async (start, end) => {
 				const { data } = await Axios.get<Readable>(format.url, {
@@ -243,7 +264,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		for (const [index, format] of supportedFormats.entries()) {
 			try {
 				if (format.url) {
-					return await this.createStreamAudioProducer(format);
+					return await this.createStreamAudioProducer(format, trackId);
 				}
 			} catch (e) {
 				if (index == supportedFormats.length - 1) {
