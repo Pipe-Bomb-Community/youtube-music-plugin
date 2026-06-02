@@ -8,7 +8,7 @@ import {
 } from "@sdk";
 import { Innertube } from "youtubei.js";
 import Axios from "axios";
-import { Readable } from "stream";
+import { Readable, PassThrough } from "stream";
 import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 
@@ -104,7 +104,34 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					responseType: "stream",
 					timeout: 15_000,
 				});
-				return data;
+
+				const speedo = new PassThrough();
+
+				let lastReportTime = Date.now();
+				let totalBytes = 0;
+				let lastReportBytes = 0;
+				speedo.on("data", (chunk: Buffer) => {
+					totalBytes += chunk.length;
+					const now = Date.now();
+					const duration = now - lastReportTime;
+					if (duration >= 1000) {
+						lastReportTime = now;
+						const bytesSinceLast = totalBytes - lastReportBytes;
+
+						const speedMBps =
+							bytesSinceLast / (duration / 1000) / (1024 * 1024);
+						const totalMB = totalBytes / (1024 * 1024);
+
+						console.log(
+							`[Download Progress] Speed: ${speedMBps.toFixed(2)} MB/s | Total Downloaded: ${totalMB.toFixed(2)} MB`,
+						);
+
+						lastReportTime = now;
+						lastReportBytes = totalBytes;
+					}
+				});
+
+				return data.pipe(speedo);
 			},
 			getPart: async (start, end) => {
 				const { data } = await Axios.get<Readable>(format.url, {
