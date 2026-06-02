@@ -118,7 +118,10 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 
 				const extractorArgs = this.config.getExtractorArgs();
 				if (extractorArgs) {
-					args.push("--extractor-args", extractorArgs);
+					const parts = extractorArgs.split(" ");
+					for (const part of parts) {
+						args.push("--extractor-args", part);
+					}
 				}
 
 				const child = spawn("yt-dlp", [...args, videoId], {
@@ -190,7 +193,10 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 
 			const extractorArgs = this.config.getExtractorArgs();
 			if (extractorArgs) {
-				args.push("--extractor-args", extractorArgs);
+				const parts = extractorArgs.split(" ");
+				for (const part of parts) {
+					args.push("--extractor-args", part);
+				}
 			}
 
 			const child = spawn("yt-dlp", [
