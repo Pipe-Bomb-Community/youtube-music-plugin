@@ -181,8 +181,10 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				let lastReportTime = Date.now();
 				let totalBytes = 0;
 				let lastReportBytes = 0;
+
+				speedo.once("data", () => endSession()); // once yt-dlp starts sending data we know it's finished with youtube frontend
+
 				speedo.on("data", (chunk: Buffer) => {
-					endSession(); // once yt-dlp starts sending data we know it's finished with youtube frontend
 					totalBytes += chunk.length;
 					const now = Date.now();
 					const duration = now - lastReportTime;
