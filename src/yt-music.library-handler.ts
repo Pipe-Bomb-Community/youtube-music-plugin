@@ -13,9 +13,13 @@ import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 
+const MAX_CONCURRENT_PRODUCERS = 3;
+
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
 	private api!: LibraryHandlerApiContext;
+	private activeProducerCreations = 0;
+	private readonly producerCreationQueue: (() => void)[] = [];
 
 	constructor(
 		private readonly innertube: Innertube,
@@ -30,10 +34,42 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		this.api = libraryHandlerApiContext;
 	}
 
+	private async createDlpSession() {
+		await new Promise<void>((resolve) => {
+			if (this.activeProducerCreations < MAX_CONCURRENT_PRODUCERS) {
+				resolve();
+			} else {
+				console.log("Waiting for DLP session to open up");
+				this.producerCreationQueue.push(resolve);
+			}
+		});
+
+		this.activeProducerCreations++;
+		let completed = false;
+		return () => {
+			if (!completed) {
+				completed = true;
+				setTimeout(() => {
+					this.activeProducerCreations--;
+					if (this.activeProducerCreations) {
+						const callback = this.producerCreationQueue.shift();
+						callback?.();
+					}
+				}, 1_000);
+			}
+		};
+	}
+
 	async createStreamAudioProducer(
 		format: YtDlpFormat,
 		videoId: string,
 	): Promise<StreamAudioProducer> {
+		if (this.activeProducerCreations < MAX_CONCURRENT_PRODUCERS) {
+			this.activeProducerCreations++;
+		} else {
+			await new Promise<void>((r) => this.producerCreationQueue.push(r));
+		}
+
 		const { headers } = await Axios.head(format.url, {
 			timeout: 10_000,
 		});
@@ -124,6 +160,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					}
 				}
 
+				const endSession = await this.createDlpSession();
 				const child = spawn("yt-dlp", [...args, videoId], {
 					stdio: [null, "pipe", null],
 				});
@@ -133,6 +170,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				});
 
 				child.on("close", (code) => {
+					endSession();
 					if (code !== 0) {
 						console.error(`yt-dlp exited with code ${code}`);
 					}
@@ -144,6 +182,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				let totalBytes = 0;
 				let lastReportBytes = 0;
 				speedo.on("data", (chunk: Buffer) => {
+					endSession(); // once yt-dlp starts sending data we know it's finished with youtube frontend
 					totalBytes += chunk.length;
 					const now = Date.now();
 					const duration = now - lastReportTime;
@@ -188,49 +227,52 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			return null;
 		}
 
-		const response = await new Promise<YtDlpResponse>((resolve, reject) => {
-			const args = ["--dump-json", "--format", "bestaudio"];
+		const endSession = await this.createDlpSession();
+		const response = await new Promise<YtDlpResponse>(
+			async (resolve, reject) => {
+				const args = ["--dump-json", "--format", "bestaudio"];
 
-			const extractorArgs = this.config.getExtractorArgs();
-			if (extractorArgs) {
-				const parts = extractorArgs.split(" ");
-				for (const part of parts) {
-					args.push("--extractor-args", part);
-				}
-			}
-
-			const child = spawn("yt-dlp", [
-				...args,
-				`https://youtube.com/watch?v=${trackId}`,
-			]);
-
-			const timer = setTimeout(() => {
-				child.kill("SIGKILL");
-				reject(new Error("yt-dlp timed out"));
-			}, 25_000);
-
-			child.stderr.on("data", (chunk: Buffer) =>
-				console.log(`[YT-DLP]:`, chunk.toString()),
-			);
-
-			let output = "";
-			child.stdout.on("data", (chunk: Buffer) => {
-				output += chunk.toString();
-			});
-
-			child.on("close", (code) => {
-				clearTimeout(timer);
-				if (code) {
-					reject(new Error(`Exited with code ${code}`));
-				} else {
-					try {
-						resolve(JSON.parse(output));
-					} catch {
-						reject(new Error("Returned invalid JSON"));
+				const extractorArgs = this.config.getExtractorArgs();
+				if (extractorArgs) {
+					const parts = extractorArgs.split(" ");
+					for (const part of parts) {
+						args.push("--extractor-args", part);
 					}
 				}
-			});
-		});
+
+				const child = spawn("yt-dlp", [
+					...args,
+					`https://youtube.com/watch?v=${trackId}`,
+				]);
+
+				const timer = setTimeout(() => {
+					child.kill("SIGKILL");
+					reject(new Error("yt-dlp timed out"));
+				}, 25_000);
+
+				child.stderr.on("data", (chunk: Buffer) =>
+					console.log(`[YT-DLP]:`, chunk.toString()),
+				);
+
+				let output = "";
+				child.stdout.on("data", (chunk: Buffer) => {
+					output += chunk.toString();
+				});
+
+				child.on("close", (code) => {
+					clearTimeout(timer);
+					if (code) {
+						reject(new Error(`Exited with code ${code}`));
+					} else {
+						try {
+							resolve(JSON.parse(output));
+						} catch {
+							reject(new Error("Returned invalid JSON"));
+						}
+					}
+				});
+			},
+		).finally(endSession);
 
 		const supportedFormats = response.formats
 			.filter((format) => {
