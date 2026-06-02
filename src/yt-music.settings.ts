@@ -4,8 +4,13 @@ export class YTMusicConfigManager implements ConfigManager {
 	private api!: ConfigManagerApiContext;
 
 	private extractorArgs = "";
+	private concurrentProducers = 1;
+
 	getExtractorArgs() {
 		return this.extractorArgs || null;
+	}
+	getConcurrentProducers() {
+		return this.concurrentProducers;
 	}
 
 	async enable(configManagerApiContext: ConfigManagerApiContext) {
@@ -13,6 +18,8 @@ export class YTMusicConfigManager implements ConfigManager {
 
 		this.extractorArgs =
 			(await this.api.getValue("extractor-args", "string")) ?? "";
+		this.concurrentProducers =
+			(await this.api.getValue("concurrent-producers", "integer")) ?? 3;
 	}
 
 	async getConfigOptions(): Promise<ConfigNode> {
@@ -31,6 +38,13 @@ export class YTMusicConfigManager implements ConfigManager {
 							value: this.extractorArgs,
 							name: "Extractor Arguments",
 						},
+						{
+							type: "text",
+							id: "concurrent-producers",
+							placeholder: "3",
+							value: this.concurrentProducers.toString(),
+							name: "Concurrent Audio Producers",
+						},
 					],
 				},
 			],
@@ -38,8 +52,6 @@ export class YTMusicConfigManager implements ConfigManager {
 	}
 
 	async update(values: Record<string, any>): Promise<ConfigNode> {
-		console.log(values);
-
 		const extractorArgs: string | undefined = values["extractor-args"]?.trim();
 		if (typeof extractorArgs == "string") {
 			if (extractorArgs != this.extractorArgs) {
@@ -49,6 +61,18 @@ export class YTMusicConfigManager implements ConfigManager {
 				} else {
 					this.api.delete("extractor-args");
 				}
+			}
+		}
+
+		const concurrentProducers = parseInt(values["concurrent-producers"]);
+		if (!isNaN(concurrentProducers) && concurrentProducers > 0) {
+			if (concurrentProducers != this.concurrentProducers) {
+				this.concurrentProducers = concurrentProducers;
+				await this.api.setValue(
+					"concurrent-producers",
+					"integer",
+					concurrentProducers,
+				);
 			}
 		}
 

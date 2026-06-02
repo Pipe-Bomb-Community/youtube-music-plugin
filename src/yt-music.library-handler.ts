@@ -13,8 +13,6 @@ import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 
-const MAX_CONCURRENT_PRODUCERS = 3;
-
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
 	private api!: LibraryHandlerApiContext;
@@ -36,7 +34,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 
 	private async createDlpSession() {
 		await new Promise<void>((resolve) => {
-			if (this.activeProducerCreations < MAX_CONCURRENT_PRODUCERS) {
+			if (this.activeProducerCreations < this.config.getConcurrentProducers()) {
 				resolve();
 			} else {
 				console.log("Waiting for DLP session to open up");
@@ -48,10 +46,13 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		let completed = false;
 		return () => {
 			if (!completed) {
+				console.log("DLP Session finished!");
 				completed = true;
 				setTimeout(() => {
 					this.activeProducerCreations--;
-					if (this.activeProducerCreations) {
+					if (
+						this.activeProducerCreations < this.config.getConcurrentProducers()
+					) {
 						const callback = this.producerCreationQueue.shift();
 						callback?.();
 					}
@@ -64,12 +65,6 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		format: YtDlpFormat,
 		videoId: string,
 	): Promise<StreamAudioProducer> {
-		if (this.activeProducerCreations < MAX_CONCURRENT_PRODUCERS) {
-			this.activeProducerCreations++;
-		} else {
-			await new Promise<void>((r) => this.producerCreationQueue.push(r));
-		}
-
 		const { headers } = await Axios.head(format.url, {
 			timeout: 10_000,
 		});
