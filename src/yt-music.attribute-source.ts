@@ -134,21 +134,29 @@ export class YTMusicAttributeSource implements AttributeSource {
 		);
 	}
 
-	getTrackAttributeValues(
+	async getTrackAttributeValues(
 		helper: TrackAttributionHelper,
 	): Promise<TrackMetadata> {
-		throw new Error("Method not implemented.");
+		return {
+			artists: null,
+			attributes: null,
+		};
 	}
 
-	getArtistAttributeValues(
+	async getArtistAttributeValues(
 		helper: ArtistInformationHelper,
 	): Promise<ArtistMetadata> {
-		throw new Error("Method not implemented.");
+		return {
+			attributes: null,
+		};
 	}
 
-	getAlbumAttributeValues(
+	async getAlbumAttributeValues(
 		helper: AlbumInformationHelper,
 	): Promise<AlbumMetadata> {
-		throw new Error("Method not implemented.");
+		return {
+			artists: null,
+			attributes: null,
+		};
 	}
 }
