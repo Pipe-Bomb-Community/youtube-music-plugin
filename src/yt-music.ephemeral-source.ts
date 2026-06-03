@@ -18,7 +18,11 @@ import { YTMusicLibraryHandler } from "./yt-music.library-handler.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";
 import Innertube, { YTNodes } from "youtubei.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
-import { listItemToAlbum, listItemToTrack } from "./utils.js";
+import {
+	deserializeAllThumbnails,
+	listItemToAlbum,
+	listItemToTrack,
+} from "./utils.js";
 
 export class YTMusicEphemeralSource implements EphemeralSource {
 	readonly id = "youtube-music";
@@ -184,11 +188,13 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			});
 		});
 
-		return {
+		const response: EphemeralSourceSearchResults = {
 			tracks,
 			albums,
 			artists,
 		};
+		deserializeAllThumbnails(response);
+		return response;
 	}
 
 	async resolveArtist(
