@@ -7,6 +7,7 @@ import path from "path";
 import { TrackIdTrackIdentifier } from "./identity/track-id.track-identifier.js";
 import { ArtistIdTrackIdentifier } from "./identity/artist-id.track-identifier.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
+import { YTMusicCache } from "./cache/ytmusic-cache.js";
 
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
@@ -28,6 +29,11 @@ export default class Plugin implements PipeBomb.Plugin {
 				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
 			});
 
+			const cache = new YTMusicCache(
+				path.join(cacheDir, "cache.sqlite"),
+				innertube,
+			);
+
 			this.api.registerTrackIdentifier(new TrackIdTrackIdentifier());
 			this.api.registerTrackIdentifier(new ArtistIdTrackIdentifier(innertube));
 
@@ -40,6 +46,7 @@ export default class Plugin implements PipeBomb.Plugin {
 				libraryHandler,
 				attributeSource,
 				innertube,
+				cache,
 			);
 
 			this.api.registerLibraryHandler(libraryHandler);

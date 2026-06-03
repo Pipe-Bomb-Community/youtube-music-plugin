@@ -17,7 +17,9 @@
 		"node": "24.14.1"
 	},
 	"dependencies": {
+		"@keyv/sqlite": "^4.0.8",
 		"axios": "^1.15.2",
+		"keyv": "^5.6.0",
 		"youtubei.js": "^17.0.1"
 	}
 }
