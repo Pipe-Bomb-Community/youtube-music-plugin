@@ -37,10 +37,7 @@ export default class Plugin implements PipeBomb.Plugin {
 			this.api.registerTrackIdentifier(new TrackIdTrackIdentifier());
 			this.api.registerTrackIdentifier(new ArtistIdTrackIdentifier(innertube));
 
-			const libraryHandler = new YTMusicLibraryHandler(
-				innertube,
-				configManager,
-			);
+			const libraryHandler = new YTMusicLibraryHandler(cache, configManager);
 			const attributeSource = new YTMusicAttributeSource();
 			const ephemeralSource = new YTMusicEphemeralSource(
 				libraryHandler,

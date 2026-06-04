@@ -89,6 +89,7 @@ export class YTMusicCache {
 			}
 		}
 
+		// todo: maybe chunk this?
 		const results = await Promise.allSettled(
 			Array.from(indexMap.keys()).map((id) =>
 				this.getTrack(id).then((track) => ({ id, track })),

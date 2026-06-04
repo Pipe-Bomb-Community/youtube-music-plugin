@@ -12,6 +12,7 @@ import { Readable, PassThrough } from "stream";
 import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
+import { YTMusicCache } from "./cache/ytmusic-cache.js";
 
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
@@ -20,7 +21,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	private readonly producerCreationQueue: (() => void)[] = [];
 
 	constructor(
-		private readonly innertube: Innertube,
+		private readonly cache: YTMusicCache,
 		private readonly config: YTMusicConfigManager,
 	) {}
 
@@ -332,5 +333,10 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		throw new Error("No supported formats");
 	}
 
-	async scan(taskRunContext: TaskRunContext): Promise<void> {}
+	async scan(_taskRunContext: TaskRunContext): Promise<void> {}
+
+	async doTracksExist(trackIds: string[]): Promise<string[]> {
+		const tracks = await this.cache.getTracks(trackIds);
+		return tracks.map((track) => track.id);
+	}
 }
