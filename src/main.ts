@@ -2,12 +2,14 @@ import type PipeBomb from "@sdk";
 import { YTMusicLibraryHandler } from "./yt-music.library-handler.js";
 import { YTMusicEphemeralSource } from "./yt-music.ephemeral-source.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";
-import Innertube, { ClientType, UniversalCache } from "youtubei.js";
+import Innertube, { UniversalCache } from "youtubei.js";
 import path from "path";
 import { TrackIdTrackIdentifier } from "./identity/track-id.track-identifier.js";
-import { ArtistIdTrackIdentifier } from "./identity/artist-id.track-identifier.js";
+import { ChannelIdTrackIdentifier } from "./identity/channel-id.track-identifier.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
+import { HandleArtistIdentifier } from "./identity/handle.artist-identifier.js";
+import { YTMusicExternalUrlSource } from "./ytmusic.url-source.js";
 
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
@@ -18,14 +20,13 @@ export default class Plugin implements PipeBomb.Plugin {
 		this.logger = apiContext.getLogger();
 
 		this.api.registerLanguageDirectory("language");
-		// this.api.registerIconDirectory("icons");
+		this.api.registerIconDirectory("icons");
 
 		const configManager = new YTMusicConfigManager();
 		this.api.registerConfigManager(configManager);
 
 		this.api.requestCacheDirectory().then(async (cacheDir) => {
 			const innertube = await Innertube.create({
-				client_type: ClientType.MWEB,
 				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
 			});
 
@@ -35,7 +36,10 @@ export default class Plugin implements PipeBomb.Plugin {
 			);
 
 			this.api.registerTrackIdentifier(new TrackIdTrackIdentifier());
-			this.api.registerTrackIdentifier(new ArtistIdTrackIdentifier(innertube));
+			this.api.registerTrackIdentifier(new ChannelIdTrackIdentifier(cache));
+			this.api.registerArtistIdentifier(new HandleArtistIdentifier(cache));
+
+			this.api.registerExternalUrlSource(new YTMusicExternalUrlSource());
 
 			const libraryHandler = new YTMusicLibraryHandler(cache, configManager);
 			const attributeSource = new YTMusicAttributeSource();

@@ -137,7 +137,7 @@ export function toAlbumArtists(
 
 				artists.push({
 					pluginId: "youtube-music",
-					identityId: "youtube_music_artist_id",
+					identityId: "youtube_music_channel_id",
 					identity: browseId,
 					joinPhrase,
 					attributes: [
@@ -202,7 +202,7 @@ export function listItemToTrack(
 			if (resultArtist.channel_id) {
 				artists.push({
 					pluginId: "youtube-music",
-					identityId: "youtube_music_artist_id",
+					identityId: "youtube_music_channel_id",
 					identity: resultArtist.channel_id,
 					attributes: [
 						{
@@ -368,7 +368,7 @@ export function upNextToEphemeralTrack(
 
 			artists.push({
 				pluginId: "youtube-music",
-				identityId: "youtube_music_artist_id",
+				identityId: "youtube_music_channel_id",
 				identity: artist.channel_id,
 				joinPhrase,
 				attributes: [
@@ -435,7 +435,7 @@ export function twoColumnBrowseToPlaylistMetadata(
 						if (userName && userId) {
 							artists.push({
 								pluginId: "youtube-music",
-								identityId: "youtube_music_user_id",
+								identityId: "youtube_music_channel_id",
 								identity: userId,
 								attributes: [
 									{
@@ -483,7 +483,7 @@ export function twoRowItemToAlbum(
 
 			artists.push({
 				pluginId: "youtube-music",
-				identityId: "youtube_music_artist_id",
+				identityId: "youtube_music_channel_id",
 				identity: artist.channel_id,
 				attributes: [
 					{
@@ -501,6 +501,35 @@ export function twoRowItemToAlbum(
 		identity: item.id,
 		attributes,
 		artists,
+	};
+}
+
+export function toArtist(response: IRawResponse) {
+	const attributes: AttributeValue[] = [];
+
+	if (response.header) {
+		const parsedNode = Parser.parse(response.header).item();
+		if (parsedNode.is(YTNodes.MusicImmersiveHeader)) {
+			if (parsedNode.title) {
+				attributes.push({
+					key: "name",
+					value: parsedNode.title.toString(),
+				});
+			}
+		}
+
+		if (parsedNode.is(YTNodes.MusicImmersiveHeader)) {
+			if (parsedNode.thumbnail?.contents.length) {
+				attributes.push({
+					key: "background",
+					value: serializeThumbnailAttribute(parsedNode.thumbnail.contents),
+				});
+			}
+		}
+	}
+
+	return {
+		attributes,
 	};
 }
 
@@ -555,7 +584,7 @@ export function toUser(response: IRawResponse) {
 													album.artists = [
 														{
 															pluginId: "youtube-music",
-															identityId: "youtube_music_user_id",
+															identityId: "youtube_music_channel_id",
 															identity: artistId.payload.browseId,
 															attributes: [
 																{
@@ -606,7 +635,7 @@ export function listItemToAlbum(
 	if (item.author?.channel_id) {
 		artists.push({
 			pluginId: "youtube-music",
-			identityId: "youtube_music_artist_id",
+			identityId: "youtube_music_channel_id",
 			identity: item.author.channel_id,
 			attributes: [
 				{

@@ -42,10 +42,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 		this.api.useAttributeSource(this.attributeSource);
 
-		this.api.resolveArtistIdentifier("youtube_music_artist_id");
-		this.api.resolveAlbumIdentifier("youtube_music_album_id");
+		this.api.resolveArtistIdentifier("youtube_music_channel_id");
+		this.api.resolveArtistIdentifier("youtube_music_handle");
 
-		this.api.resolveArtistIdentifier("youtube_music_user_id");
+		this.api.resolveAlbumIdentifier("youtube_music_album_id");
 		this.api.resolveAlbumIdentifier("youtube_music_playlist_id");
 
 		this.api.useTrackIdentifier("youtube_music_track_id");
@@ -129,7 +129,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 			artists.push({
 				pluginId: "youtube-music",
-				identityId: "youtube_music_artist_id",
+				identityId: "youtube_music_channel_id",
 				identity: item.id,
 				attributes,
 			});
@@ -168,7 +168,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			if (item.author?.channel_id) {
 				artists.push({
 					pluginId: "youtube-music",
-					identityId: "youtube_music_user_id",
+					identityId: "youtube_music_channel_id",
 					identity: item.author.channel_id,
 					attributes: [
 						{
@@ -201,44 +201,42 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		identityId: string,
 		identity: string,
 	): Promise<ArtistMetadata | null> {
-		if (identityId == "youtube_music_artist_id") {
-			return this.cache.getArtistMetadata(identity);
+		let channelId: string | null = null;
+
+		if (identityId == "youtube_music_channel_id") {
+			channelId = identity;
+		}
+		if (identityId == "youtube_music_handle") {
+			channelId = await this.cache.handleToChannelId(identity);
 		}
 
-		if (identityId == "youtube_music_user_id") {
-			return this.cache.getUserMetadata(identity);
+		if (channelId) {
+			return this.cache.getChannelMetadata(channelId);
 		}
 
 		return null;
-	}
-
-	private async resolveArtistAsArtistContent(
-		artistId: string,
-	): Promise<EphemeralArtistContent | null> {
-		return this.cache.getArtistContent(artistId);
-	}
-
-	private async resolveUserAsArtistContent(
-		userId: string,
-	): Promise<EphemeralArtistContent | null> {
-		const { albums, tracks } = await this.cache.getUserContent(userId);
-
-		return {
-			albums,
-			tracks,
-		};
 	}
 
 	async resolveArtistContent(
 		identityId: string,
 		identity: string,
 	): Promise<EphemeralArtistContent | null> {
-		if (identityId == "youtube_music_artist_id") {
-			return this.resolveArtistAsArtistContent(identity);
+		let channelId: string | null = null;
+
+		if (identityId == "youtube_music_channel_id") {
+			channelId = identity;
+		}
+		if (identityId == "youtube_music_handle") {
+			channelId = await this.cache.handleToChannelId(identity);
 		}
 
-		if (identityId == "youtube_music_user_id") {
-			return this.resolveUserAsArtistContent(identity);
+		if (channelId) {
+			const type = await this.cache.getChannelType(channelId);
+			if (type == "artist") {
+				return this.cache.getArtistContent(channelId);
+			} else {
+				return this.cache.getUserContent(channelId);
+			}
 		}
 
 		return null;

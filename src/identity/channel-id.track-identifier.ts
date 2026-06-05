@@ -5,13 +5,13 @@ import {
 	TrackIdentifierTarget,
 	TrackInformationHelper,
 } from "@sdk";
-import Innertube, { YTNodes } from "youtubei.js";
+import { YTMusicCache } from "../cache/ytmusic-cache.js";
 
-export class ArtistIdTrackIdentifier implements TrackIdentifier {
-	readonly id = "youtube_music_artist_id";
+export class ChannelIdTrackIdentifier implements TrackIdentifier {
+	readonly id = "youtube_music_channel_id";
 	readonly target: TrackIdentifierTarget = "artist";
 
-	constructor(private readonly innertube: Innertube) {}
+	constructor(private readonly cache: YTMusicCache) {}
 
 	async identify(
 		helper: TrackInformationHelper,
@@ -21,20 +21,12 @@ export class ArtistIdTrackIdentifier implements TrackIdentifier {
 		if (!trackId) {
 			return null;
 		}
-		const panel = await this.innertube.music.getUpNext(trackId.identity, false);
-		const track = panel.contents?.[0];
-		if (!track || !track.is(YTNodes.PlaylistPanelVideo)) {
-			return null;
-		}
 
-		const ids: string[] = [];
-		for (const artist of track.artists ?? []) {
-			if (artist.channel_id) {
-				ids.push(artist.channel_id);
-			}
+		const track = await this.cache.getTrack(trackId.identity);
+		if (track?.artists) {
+			return track.artists.map((artist) => artist.identity);
 		}
-
-		return ids;
+		return null;
 	}
 
 	getDependencies(): IdentifierDependency[] {

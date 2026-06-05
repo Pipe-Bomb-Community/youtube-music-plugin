@@ -9,9 +9,11 @@ import {
 	IdentifiableAlbumMetadata,
 } from "@sdk";
 import {
+	deserializeAllThumbnails,
 	listItemToTrack,
 	serializeThumbnailAttribute,
 	toAlbum,
+	toArtist,
 	toUser,
 	twoColumnBrowseToPlaylistMetadata,
 	twoRowItemToAlbum,
@@ -41,7 +43,7 @@ export class YTMusicCache {
 			`song-upnext:${videoId}`,
 			async () => {
 				const info = await this.innertube.music
-					.getUpNext(videoId)
+					.getUpNext(videoId, false)
 					.then((panel_1) => panel_1.contents?.[0]);
 				if (info && info.is(YTNodes.PlaylistPanelVideo)) {
 					const track = upNextToEphemeralTrack(info, videoId);
@@ -215,33 +217,45 @@ export class YTMusicCache {
 		);
 	}
 
-	async getArtistMetadata(artistId: string) {
-		return this.cache.getOrFind<ArtistMetadata>(
-			`artist:${artistId}`,
+	async getChannelHandle(channelId: string) {
+		const handle = await this.cache.getOrFind<string>(
+			`channel-handle:${channelId}`,
 			async () => {
-				const result = await this.innertube.music.getArtist(artistId);
-
-				const attributes: AttributeValue[] = [];
-
-				if (result.header?.title) {
-					attributes.push({
-						key: "name",
-						value: result.header.title.toString(),
-					});
+				const result = await this.innertube.actions.execute("/browse", {
+					browseId: channelId,
+					client: "YTMUSIC",
+				});
+				if (result.status_code != 200 || !result.data?.contents) {
+					throw new Error("Invalid response from YouTube");
 				}
 
-				if (result.header instanceof YTNodes.MusicImmersiveHeader) {
-					if (result.header.thumbnail?.contents.length) {
-						attributes.push({
-							key: "background",
-							value: serializeThumbnailAttribute(
-								result.header.thumbnail.contents,
-							),
-						});
+				const microformat = Parser.parse(result.data.microformat).item();
+				if (microformat.is(YTNodes.MicroformatData)) {
+					const end = microformat.url_canonical.split("/").pop()!;
+					if (end.startsWith("@")) {
+						return end.substring(1);
 					}
+					return "";
 				}
+				throw new Error("Unable to parse Microformat");
+			},
+		);
+		return handle || null;
+	}
 
-				return { attributes };
+	async handleToChannelId(handle: string) {
+		if (handle.startsWith("@")) {
+			handle = handle.substring(1);
+		}
+		handle = handle.toLowerCase();
+
+		return this.cache.getOrFind<string | null>(
+			`handle-channel:${handle}`,
+			async () => {
+				const endpoint = await this.innertube.resolveURL(
+					`https://music.youtube.com/@${handle}`,
+				);
+				return endpoint.payload?.browseId ?? null;
 			},
 			{
 				ttl: MONTH,
@@ -249,29 +263,86 @@ export class YTMusicCache {
 		);
 	}
 
-	async getUserMetadata(userId: string) {
-		return this.cache.getOrFind<ArtistMetadata>(
-			`user:${userId}`,
+	async getChannelType(channelId: string) {
+		return this.cache.getOrFind<"artist" | "user">(
+			`channel-type:${channelId}`,
 			async () => {
 				const result = await this.innertube.actions.execute("/browse", {
-					browseId: userId,
+					browseId: channelId,
 					client: "YTMUSIC",
 				});
+				if (result.status_code != 200 || !result.data?.contents) {
+					throw new Error("Invalid response from YouTube");
+				}
 
-				const { attributes, albums } = toUser(result.data);
-				await this.cache.set(`user-content:${userId}`, { albums });
+				const contents = Parser.parse(result.data.contents).item();
+				if (contents.is(YTNodes.SingleColumnBrowseResults)) {
+					for (const tab of contents.tabs) {
+						if (tab.selected) {
+							if (tab.title == "Music") {
+								return "artist";
+							}
+							if (tab.title == "Home") {
+								return "user";
+							}
+						}
+					}
+				}
 
-				return { attributes };
+				throw new Error("Unable to parse channel");
 			},
 			{
-				ttl: DAY,
+				ttl: MONTH,
 			},
 		);
 	}
 
+	async getChannelMetadata(channelId: string) {
+		const result = await this.innertube.actions.execute("/browse", {
+			browseId: channelId,
+			client: "YTMUSIC",
+		});
+		if (result.status_code != 200 || !result.data?.contents) {
+			throw new Error("Invalid response from YouTube");
+		}
+
+		const microformat = Parser.parse(result.data.microformat).item();
+		if (microformat.is(YTNodes.MicroformatData)) {
+			const end = microformat.url_canonical.split("/").pop()!;
+			if (end.startsWith("@")) {
+				await this.cache.set(`channel-handle:${channelId}`, end.substring(1));
+			} else {
+				await this.cache.set(`channel-handle:${channelId}`, "");
+			}
+		}
+
+		const contents = Parser.parse(result.data.contents).item();
+
+		if (contents.is(YTNodes.SingleColumnBrowseResults)) {
+			for (const tab of contents.tabs) {
+				if (tab.selected) {
+					if (tab.title == "Music") {
+						await this.cache.set(`channel-type:${channelId}`, "artist");
+						const output = toArtist(result.data);
+						deserializeAllThumbnails(output);
+						return output;
+					}
+					if (tab.title == "Home") {
+						await this.cache.set(`channel-type:${channelId}`, "user");
+						const output = toUser(result.data);
+						deserializeAllThumbnails(output);
+						return output;
+					}
+				}
+			}
+		}
+
+		throw new Error("Unable to locate or parse channel");
+	}
+
 	async getArtistContent(artistId: string) {
 		return this.cache.getOrFind<EphemeralArtistContent>(
-			`artist-content:${artistId}`,
+			`channel-content:${artistId}`,
 			async () => {
 				const artist = await this.innertube.music.getArtist(artistId);
 
@@ -317,7 +388,7 @@ export class YTMusicCache {
 
 	async getUserContent(userId: string) {
 		return this.cache.getOrFind<EphemeralArtistContent>(
-			`user-content:${userId}`,
+			`channel-content:${userId}`,
 			async () => {
 				const result = await this.innertube.actions.execute("/browse", {
 					browseId: userId,
