@@ -151,7 +151,7 @@ export class YTMusicCache {
 			playlistId = `VL${playlistId}`;
 		}
 
-		return this.cache.getOrFind<AlbumMetadata | null>(
+		return this.cache.getOrFind<AlbumMetadata>(
 			`playlist:${playlistId}`,
 			async () => {
 				const result = await this.innertube.actions.execute("/browse", {

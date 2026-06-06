@@ -12,12 +12,13 @@ import {
 } from "@sdk";
 import Axios from "axios";
 import { YTMArtistStub, YTMThumbnail } from "./types.js";
+import { YTMusicCache } from "./cache/ytmusic-cache.js";
 
 export class YTMusicAttributeSource implements AttributeSource {
 	readonly id = "youtube-music";
 	private api!: AttributeSourceApiContext;
 
-	constructor() {}
+	constructor(private readonly cache: YTMusicCache) {}
 
 	enable(attributeSourceApiContext: AttributeSourceApiContext): void {
 		this.api = attributeSourceApiContext;
@@ -137,6 +138,17 @@ export class YTMusicAttributeSource implements AttributeSource {
 	async getTrackAttributeValues(
 		helper: TrackAttributionHelper,
 	): Promise<TrackMetadata> {
+		const trackId = await helper.getIdentity("youtube_music_track_id");
+		if (trackId) {
+			const track = await this.cache.getTrack(trackId.identity);
+			if (track) {
+				return {
+					artists: track.artists,
+					attributes: track.attributes,
+				};
+			}
+		}
+
 		return {
 			artists: null,
 			attributes: null,
@@ -146,6 +158,11 @@ export class YTMusicAttributeSource implements AttributeSource {
 	async getArtistAttributeValues(
 		helper: ArtistInformationHelper,
 	): Promise<ArtistMetadata> {
+		const channelId = helper.getIdentity("youtube_music_channel_id");
+		if (channelId) {
+			return this.cache.getChannelMetadata(channelId.identity);
+		}
+
 		return {
 			attributes: null,
 		};
@@ -154,6 +171,16 @@ export class YTMusicAttributeSource implements AttributeSource {
 	async getAlbumAttributeValues(
 		helper: AlbumInformationHelper,
 	): Promise<AlbumMetadata> {
+		const albumId = await helper.getIdentity("youtube_music_album_id");
+		if (albumId) {
+			return this.cache.getAlbumMetadata(albumId.identity);
+		}
+
+		const playlistId = await helper.getIdentity("youtube_music_playlist_id");
+		if (playlistId) {
+			return this.cache.getPlaylistMetadata(playlistId.identity);
+		}
+
 		return {
 			artists: null,
 			attributes: null,

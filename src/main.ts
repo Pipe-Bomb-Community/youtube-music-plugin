@@ -42,7 +42,7 @@ export default class Plugin implements PipeBomb.Plugin {
 			this.api.registerExternalUrlSource(new YTMusicExternalUrlSource());
 
 			const libraryHandler = new YTMusicLibraryHandler(cache, configManager);
-			const attributeSource = new YTMusicAttributeSource();
+			const attributeSource = new YTMusicAttributeSource(cache);
 			const ephemeralSource = new YTMusicEphemeralSource(
 				libraryHandler,
 				attributeSource,
