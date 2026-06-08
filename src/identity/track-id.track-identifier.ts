@@ -1,5 +1,4 @@
 import {
-	Identifier,
 	IdentifierDependency,
 	Logger,
 	TrackIdentifier,
