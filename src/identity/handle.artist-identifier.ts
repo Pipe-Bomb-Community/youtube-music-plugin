@@ -7,7 +7,7 @@ import {
 import { YTMusicCache } from "../cache/ytmusic-cache.js";
 
 export class HandleArtistIdentifier implements ArtistIdentifier {
-	readonly id = "youtube_music_handle";
+	readonly id = "youtube_handle";
 
 	constructor(private readonly cache: YTMusicCache) {}
 
@@ -17,7 +17,7 @@ export class HandleArtistIdentifier implements ArtistIdentifier {
 	): Promise<string[] | null> {
 		const channelIds = new Set<string>(
 			helper
-				.getIdentity("youtube_music_channel_id", null, true)
+				.getIdentity("youtube_channel_id", null, true)
 				?.map((i) => i.identity) ?? [],
 		);
 
@@ -43,7 +43,7 @@ export class HandleArtistIdentifier implements ArtistIdentifier {
 		return [
 			{
 				pluginId: null,
-				sourceId: "youtube_music_channel_id",
+				sourceId: "youtube_channel_id",
 			},
 		];
 	}

@@ -8,7 +8,7 @@ import {
 
 export class YTMusicExternalUrlSource implements ExternalUrlSource {
 	getArtistUrls(helper: ArtistExternalUrlHelper): ExternalUrl[] | null {
-		const handle = helper.getIdentity("youtube_music_handle");
+		const handle = helper.getIdentity("youtube_handle");
 		if (handle) {
 			return [
 				{
@@ -19,7 +19,7 @@ export class YTMusicExternalUrlSource implements ExternalUrlSource {
 			];
 		}
 
-		const channelId = helper.getIdentity("youtube_music_channel_id");
+		const channelId = helper.getIdentity("youtube_channel_id");
 		if (channelId) {
 			return [
 				{

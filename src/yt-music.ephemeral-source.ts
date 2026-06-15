@@ -42,8 +42,8 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 		this.api.useAttributeSource(this.attributeSource);
 
-		this.api.resolveArtistIdentifier("youtube_music_channel_id");
-		this.api.resolveArtistIdentifier("youtube_music_handle");
+		this.api.resolveArtistIdentifier("youtube_channel_id");
+		this.api.resolveArtistIdentifier("youtube_handle");
 
 		this.api.resolveAlbumIdentifier("youtube_music_album_id");
 		this.api.resolveAlbumIdentifier("youtube_music_playlist_id");
@@ -129,7 +129,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 
 			artists.push({
 				pluginId: "youtube-music",
-				identityId: "youtube_music_channel_id",
+				identityId: "youtube_channel_id",
 				identity: item.id,
 				attributes,
 			});
@@ -168,7 +168,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			if (item.author?.channel_id) {
 				artists.push({
 					pluginId: "youtube-music",
-					identityId: "youtube_music_channel_id",
+					identityId: "youtube_channel_id",
 					identity: item.author.channel_id,
 					attributes: [
 						{
@@ -203,10 +203,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	): Promise<ArtistMetadata | null> {
 		let channelId: string | null = null;
 
-		if (identityId == "youtube_music_channel_id") {
+		if (identityId == "youtube_channel_id") {
 			channelId = identity;
 		}
-		if (identityId == "youtube_music_handle") {
+		if (identityId == "youtube_handle") {
 			channelId = await this.cache.handleToChannelId(identity);
 		}
 
@@ -223,10 +223,10 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 	): Promise<EphemeralArtistContent | null> {
 		let channelId: string | null = null;
 
-		if (identityId == "youtube_music_channel_id") {
+		if (identityId == "youtube_channel_id") {
 			channelId = identity;
 		}
-		if (identityId == "youtube_music_handle") {
+		if (identityId == "youtube_handle") {
 			channelId = await this.cache.handleToChannelId(identity);
 		}
 

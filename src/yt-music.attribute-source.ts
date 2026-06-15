@@ -158,7 +158,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 	async getArtistAttributeValues(
 		helper: ArtistInformationHelper,
 	): Promise<ArtistMetadata> {
-		const channelId = helper.getIdentity("youtube_music_channel_id");
+		const channelId = helper.getIdentity("youtube_channel_id");
 		if (channelId) {
 			return this.cache.getChannelMetadata(channelId.identity);
 		}

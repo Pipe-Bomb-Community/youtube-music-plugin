@@ -137,7 +137,7 @@ export function toAlbumArtists(
 
 				artists.push({
 					pluginId: "youtube-music",
-					identityId: "youtube_music_channel_id",
+					identityId: "youtube_channel_id",
 					identity: browseId,
 					joinPhrase,
 					attributes: [
@@ -202,7 +202,7 @@ export function listItemToTrack(
 			if (resultArtist.channel_id) {
 				artists.push({
 					pluginId: "youtube-music",
-					identityId: "youtube_music_channel_id",
+					identityId: "youtube_channel_id",
 					identity: resultArtist.channel_id,
 					attributes: [
 						{
@@ -368,7 +368,7 @@ export function upNextToEphemeralTrack(
 
 			artists.push({
 				pluginId: "youtube-music",
-				identityId: "youtube_music_channel_id",
+				identityId: "youtube_channel_id",
 				identity: artist.channel_id,
 				joinPhrase,
 				attributes: [
@@ -435,7 +435,7 @@ export function twoColumnBrowseToPlaylistMetadata(
 						if (userName && userId) {
 							artists.push({
 								pluginId: "youtube-music",
-								identityId: "youtube_music_channel_id",
+								identityId: "youtube_channel_id",
 								identity: userId,
 								attributes: [
 									{
@@ -483,7 +483,7 @@ export function twoRowItemToAlbum(
 
 			artists.push({
 				pluginId: "youtube-music",
-				identityId: "youtube_music_channel_id",
+				identityId: "youtube_channel_id",
 				identity: artist.channel_id,
 				attributes: [
 					{
@@ -584,7 +584,7 @@ export function toUser(response: IRawResponse) {
 													album.artists = [
 														{
 															pluginId: "youtube-music",
-															identityId: "youtube_music_channel_id",
+															identityId: "youtube_channel_id",
 															identity: artistId.payload.browseId,
 															attributes: [
 																{
@@ -635,7 +635,7 @@ export function listItemToAlbum(
 	if (item.author?.channel_id) {
 		artists.push({
 			pluginId: "youtube-music",
-			identityId: "youtube_music_channel_id",
+			identityId: "youtube_channel_id",
 			identity: item.author.channel_id,
 			attributes: [
 				{

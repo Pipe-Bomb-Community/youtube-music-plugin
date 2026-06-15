@@ -8,7 +8,7 @@ import {
 import { YTMusicCache } from "../cache/ytmusic-cache.js";
 
 export class ChannelIdTrackIdentifier implements TrackIdentifier {
-	readonly id = "youtube_music_channel_id";
+	readonly id = "youtube_channel_id";
 	readonly target: TrackIdentifierTarget = "artist";
 
 	constructor(private readonly cache: YTMusicCache) {}

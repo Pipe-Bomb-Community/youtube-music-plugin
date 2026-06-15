@@ -20,16 +20,16 @@ npm run build
 
 ### Track
 
-| Identity                   | Dependencies                 | Link   | Description                                        |
-| :------------------------- | ---------------------------- | ------ | -------------------------------------------------- |
-| `youtube_music_track_id`   |                              |        | The Video ID of the track.                         |
-| `youtube_music_channel_id` | `soundcloud_track_id` (hard) | Artist | The YouTube channel IDs associated with the track. |
+| Identity                 | Dependencies                 | Link   | Description                                        |
+| :----------------------- | ---------------------------- | ------ | -------------------------------------------------- |
+| `youtube_music_track_id` |                              |        | The Video ID of the track.                         |
+| `youtube_channel_id`     | `soundcloud_track_id` (hard) | Artist | The YouTube channel IDs associated with the track. |
 
 ### Artist
 
-| Identity               | Dependencies                      | Description                                                                        |
-| :--------------------- | --------------------------------- | ---------------------------------------------------------------------------------- |
-| `youtube_music_handle` | `youtube_music_channel_id` (soft) | The (slug) for the channel, if it exists. Used to construct URLs to channel pages. |
+| Identity         | Dependencies                | Description                                                                        |
+| :--------------- | --------------------------- | ---------------------------------------------------------------------------------- |
+| `youtube_handle` | `youtube_channel_id` (soft) | The (slug) for the channel, if it exists. Used to construct URLs to channel pages. |
 
 ## Attributes
 
