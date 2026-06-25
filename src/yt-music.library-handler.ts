@@ -146,6 +146,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					"10M",
 					"--downloader",
 					"native",
+					"--no-update",
 				];
 
 				const extractorArgs = this.config.getExtractorArgs();
@@ -157,9 +158,13 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				}
 
 				const endSession = await this.createDlpSession();
-				const child = spawn("yt-dlp", [...args, videoId], {
-					stdio: [null, "pipe", null],
-				});
+				const child = spawn(
+					"yt-dlp",
+					[...args, `https://youtube.com/watch?v=${videoId}`],
+					{
+						stdio: [null, "pipe", null],
+					},
+				);
 
 				child.stderr.on("data", (chunk: Buffer) => {
 					console.log(`[yt-dlp] ${chunk.toString().trim()}`);
@@ -228,7 +233,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		const endSession = await this.createDlpSession();
 		const response = await new Promise<YtDlpResponse>(
 			async (resolve, reject) => {
-				const args = ["--dump-json", "--format", "bestaudio"];
+				const args = ["--dump-json", "--format", "bestaudio", "--no-update"];
 
 				const extractorArgs = this.config.getExtractorArgs();
 				if (extractorArgs) {
