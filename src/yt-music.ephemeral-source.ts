@@ -286,7 +286,9 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		return null;
 	}
 
-	resolveTracks(trackIds: string[]): Promise<EphemeralTrack[]> {
-		return this.cache.getTracks(trackIds);
+	async resolveTracks(trackIds: string[]): Promise<EphemeralTrack[]> {
+		const tracks = await this.cache.getTracks(trackIds);
+		deserializeAllThumbnails(tracks);
+		return tracks;
 	}
 }
