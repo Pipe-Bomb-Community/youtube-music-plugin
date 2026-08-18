@@ -9,6 +9,7 @@ import {
 import { YTMThumbnail } from "./types.js";
 import Axios from "axios";
 import { YTNodes, YTMusic, RawData, Parser, IRawResponse } from "youtubei.js";
+import { YtDlpFormat } from "./types/yt-dlp.js";
 
 export function compare<T extends string | number>(a: T, b: T) {
 	if (a < b) {
@@ -653,4 +654,21 @@ export function listItemToAlbum(
 		attributes,
 		artists,
 	};
+}
+
+export function getMimeType(format: YtDlpFormat): string {
+	switch (format.ext) {
+		case "webm":
+			return "audio/webm";
+		case "m4a":
+			return "audio/mp4";
+		case "mp3":
+			return "audio/mpeg";
+		case "ogg":
+			return "audio/ogg";
+		case "aac":
+			return "audio/aac";
+		default:
+			return "application/octet-stream";
+	}
 }

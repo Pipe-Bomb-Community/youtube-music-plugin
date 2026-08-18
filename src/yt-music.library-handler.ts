@@ -7,12 +7,13 @@ import {
 	TaskRunContext,
 } from "@sdk";
 import { Innertube } from "youtubei.js";
-import Axios from "axios";
+import Axios, { AxiosError } from "axios";
 import { Readable, PassThrough } from "stream";
 import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
+import { getMimeType } from "./utils.js";
 
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
@@ -66,160 +67,172 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		format: YtDlpFormat,
 		videoId: string,
 	): Promise<StreamAudioProducer> {
-		const { headers } = await Axios.head(format.url, {
-			timeout: 10_000,
-		});
+		try {
+			console.log(format);
+			const mimeType = getMimeType(format);
+			const size = format.filesize;
+			if (!size || isNaN(size)) {
+				throw new Error("Invalid or unknown content-length");
+			}
 
-		if (!headers["content-type"] || !headers["content-length"]) {
-			throw new Error("Missing headers");
-		}
+			let duration: number | null = null;
 
-		const mimeType = headers["content-type"].toString();
-		const size = parseInt(headers["content-length"].toString());
+			return {
+				type: "stream",
+				cacheable: true,
+				getDuration: async () => {
+					if (duration !== null) {
+						return duration;
+					}
+					return await new Promise<number>((resolve, reject) => {
+						const child = spawn("ffprobe", [
+							"-v",
+							"error",
+							"-show_entries",
+							"format=duration",
+							"-of",
+							"default=noprint_wrappers=1:nokey=1",
+							format.url,
+						]);
 
-		if (isNaN(size)) {
-			throw new Error("Invalid content-length");
-		}
+						const timer = setTimeout(() => {
+							child.kill("SIGKILL");
+							reject(new Error("FFprobe timed out"));
+						}, 15_000);
 
-		let duration: number | null = null;
+						child.stderr.on("data", (chunk: Buffer) => {
+							console.error(`[FFprobe] ${chunk.toString()}`);
+						});
 
-		return {
-			type: "stream",
-			cacheable: true,
-			getDuration: async () => {
-				if (duration !== null) {
-					return duration;
-				}
-				return await new Promise<number>((resolve, reject) => {
-					const child = spawn("ffprobe", [
-						"-v",
-						"error",
-						"-show_entries",
-						"format=duration",
-						"-of",
-						"default=noprint_wrappers=1:nokey=1",
-						format.url,
-					]);
+						let output = "";
 
-					const timer = setTimeout(() => {
-						child.kill("SIGKILL");
-						reject(new Error("FFprobe timed out"));
-					}, 15_000);
+						child.stdout.on("data", (chunk: Buffer) => {
+							output += chunk.toString();
+						});
+
+						child.on("close", (code) => {
+							clearTimeout(timer);
+							if (code) {
+								reject(new Error(`Exited with code ${code}`));
+							} else {
+								const computedDuration = parseFloat(output.trim());
+								if (isNaN(computedDuration)) {
+									reject(new Error(`Invalid duration`));
+								} else {
+									duration = computedDuration;
+									resolve(computedDuration);
+								}
+							}
+						});
+					});
+				},
+				getMetadata: async () => ({
+					mimeType,
+					size,
+				}),
+				getStream: async () => {
+					const args = [
+						"-f",
+						format.format_id,
+						"-o",
+						"-",
+						"--http-chunk-size",
+						"10M",
+						"--downloader",
+						"native",
+						"--no-update",
+					];
+
+					const extractorArgs = this.config.getExtractorArgs();
+					if (extractorArgs) {
+						const parts = extractorArgs.split(" ");
+						for (const part of parts) {
+							args.push("--extractor-args", part);
+						}
+					}
+
+					const endSession = await this.createDlpSession();
+					const child = spawn(
+						"yt-dlp",
+						[...args, `https://youtube.com/watch?v=${videoId}`],
+						{
+							stdio: [null, "pipe", null],
+						},
+					);
 
 					child.stderr.on("data", (chunk: Buffer) => {
-						console.error(`[FFprobe] ${chunk.toString()}`);
-					});
-
-					let output = "";
-
-					child.stdout.on("data", (chunk: Buffer) => {
-						output += chunk.toString();
+						console.log(`[yt-dlp] ${chunk.toString().trim()}`);
 					});
 
 					child.on("close", (code) => {
-						clearTimeout(timer);
-						if (code) {
-							reject(new Error(`Exited with code ${code}`));
-						} else {
-							const computedDuration = parseFloat(output.trim());
-							if (isNaN(computedDuration)) {
-								reject(new Error(`Invalid duration`));
-							} else {
-								duration = computedDuration;
-								resolve(computedDuration);
-							}
+						endSession();
+						if (code !== 0) {
+							console.error(`yt-dlp exited with code ${code}`);
 						}
 					});
-				});
-			},
-			getMetadata: async () => ({
-				mimeType,
-				size,
-			}),
-			getStream: async () => {
-				const args = [
-					"-f",
-					format.format_id,
-					"-o",
-					"-",
-					"--http-chunk-size",
-					"10M",
-					"--downloader",
-					"native",
-					"--no-update",
-				];
 
-				const extractorArgs = this.config.getExtractorArgs();
-				if (extractorArgs) {
-					const parts = extractorArgs.split(" ");
-					for (const part of parts) {
-						args.push("--extractor-args", part);
+					const speedo = new PassThrough();
+
+					let lastReportTime = Date.now();
+					let totalBytes = 0;
+					let lastReportBytes = 0;
+
+					speedo.once("data", () => endSession()); // once yt-dlp starts sending data we know it's finished with youtube frontend
+
+					speedo.on("data", (chunk: Buffer) => {
+						totalBytes += chunk.length;
+						const now = Date.now();
+						const duration = now - lastReportTime;
+						if (duration >= 1000) {
+							lastReportTime = now;
+							const bytesSinceLast = totalBytes - lastReportBytes;
+
+							const speedMBps =
+								bytesSinceLast / (duration / 1000) / (1024 * 1024);
+							const totalMB = totalBytes / (1024 * 1024);
+
+							console.log(
+								`[Download Progress] Speed: ${speedMBps.toFixed(2)} MB/s | Total Downloaded: ${totalMB.toFixed(2)} MB`,
+							);
+
+							lastReportTime = now;
+							lastReportBytes = totalBytes;
+						}
+					});
+
+					return child.stdout.pipe(speedo);
+				},
+				getPart: async (start, end) => {
+					try {
+						console.log(`Getting part ${start} - ${end}`);
+						const { data } = await Axios.get<Readable>(format.url, {
+							responseType: "stream",
+							timeout: 15_000,
+							headers: {
+								...format.http_headers,
+								// range: `bytes=${start}-${end}`,
+							},
+						});
+						console.log(`Got part ${start} - ${end}`);
+						return data;
+					} catch (e) {
+						if (e instanceof AxiosError) {
+							throw new Error(
+								`HTTP request to YouTube for part of stream resulted in status code "${e.response?.status ?? "UNKNOWN"}"`,
+							);
+						}
+						throw e;
 					}
-				}
-
-				const endSession = await this.createDlpSession();
-				const child = spawn(
-					"yt-dlp",
-					[...args, `https://youtube.com/watch?v=${videoId}`],
-					{
-						stdio: [null, "pipe", null],
-					},
+				},
+			};
+		} catch (e) {
+			if (e instanceof AxiosError) {
+				throw new Error(
+					`HTTP request to YouTube for stream HEAD resulted in status code "${e.response?.status ?? "UNKNOWN"}"`,
 				);
-
-				child.stderr.on("data", (chunk: Buffer) => {
-					console.log(`[yt-dlp] ${chunk.toString().trim()}`);
-				});
-
-				child.on("close", (code) => {
-					endSession();
-					if (code !== 0) {
-						console.error(`yt-dlp exited with code ${code}`);
-					}
-				});
-
-				const speedo = new PassThrough();
-
-				let lastReportTime = Date.now();
-				let totalBytes = 0;
-				let lastReportBytes = 0;
-
-				speedo.once("data", () => endSession()); // once yt-dlp starts sending data we know it's finished with youtube frontend
-
-				speedo.on("data", (chunk: Buffer) => {
-					totalBytes += chunk.length;
-					const now = Date.now();
-					const duration = now - lastReportTime;
-					if (duration >= 1000) {
-						lastReportTime = now;
-						const bytesSinceLast = totalBytes - lastReportBytes;
-
-						const speedMBps =
-							bytesSinceLast / (duration / 1000) / (1024 * 1024);
-						const totalMB = totalBytes / (1024 * 1024);
-
-						console.log(
-							`[Download Progress] Speed: ${speedMBps.toFixed(2)} MB/s | Total Downloaded: ${totalMB.toFixed(2)} MB`,
-						);
-
-						lastReportTime = now;
-						lastReportBytes = totalBytes;
-					}
-				});
-
-				return child.stdout.pipe(speedo);
-			},
-			getPart: async (start, end) => {
-				const { data } = await Axios.get<Readable>(format.url, {
-					responseType: "stream",
-					timeout: 15_000,
-					headers: {
-						...format.http_headers,
-						range: `bytes=${start}-${end}`,
-					},
-				});
-				return data;
-			},
-		};
+			}
+			throw e;
+		}
 	}
 
 	async getAudioProducer(
@@ -233,7 +246,13 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		const endSession = await this.createDlpSession();
 		const response = await new Promise<YtDlpResponse>(
 			async (resolve, reject) => {
-				const args = ["--dump-json", "--format", "bestaudio", "--no-update"];
+				const args = [
+					"--dump-json",
+					"--format",
+					"bestaudio",
+					"--no-update",
+					"--force-ipv4",
+				];
 
 				const extractorArgs = this.config.getExtractorArgs();
 				if (extractorArgs) {
