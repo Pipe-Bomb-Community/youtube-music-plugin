@@ -24,6 +24,20 @@ const videoId = process.argv[2]!;
 	);
 
 	const configManager = new YTMusicConfigManager();
+	await configManager.enable({
+		delete: async () => {},
+		getValue: (key) => {
+			switch (key) {
+				case "extractor-args":
+					return "youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416 youtube:player_client=mweb";
+				case "plugin-dirs":
+					return "/home/eyezah/Documents/bgutil-ytdlp-pot-provider";
+			}
+			return null as any;
+		},
+		setValue: async () => {},
+	});
+
 	const libraryHandler = new YTMusicLibraryHandler(cache, configManager);
 	console.log(`Attempting to load https://www.youtube.com/watch?v=${videoId}`);
 

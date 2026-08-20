@@ -6,8 +6,7 @@ import {
 	StreamAudioProducer,
 	TaskRunContext,
 } from "@sdk";
-import Axios, { AxiosError } from "axios";
-import { Readable, PassThrough } from "stream";
+import { PassThrough } from "stream";
 import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
@@ -31,6 +30,17 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 
 	enable(libraryHandlerApiContext: LibraryHandlerApiContext) {
 		this.api = libraryHandlerApiContext;
+	}
+
+	private getCookiesArgs(): string[] {
+		const browser = this.config.getCookiesBrowser();
+		return browser ? ["--cookies-from-browser", browser] : [];
+	}
+
+	private getPluginDirsArgs(): string[] {
+		return this.config
+			.getPluginDirs()
+			.flatMap((dir) => ["--plugin-dirs", dir]);
 	}
 
 	private async createDlpSession() {
@@ -66,10 +76,9 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		format: YtDlpFormat,
 		videoId: string,
 	): Promise<StreamAudioProducer> {
-		try {
-			console.log(format);
+		console.log(format);
 			const mimeType = getMimeType(format);
-			const size = format.filesize;
+			const size = format.filesize ?? format.filesize_approx;
 			if (!size || isNaN(size)) {
 				throw new Error("Invalid or unknown content-length");
 			}
@@ -149,6 +158,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 							args.push("--extractor-args", part);
 						}
 					}
+					args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
 
 					const endSession = await this.createDlpSession();
 					const child = spawn(
@@ -202,36 +212,93 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					return child.stdout.pipe(speedo);
 				},
 				getPart: async (start, end) => {
-					try {
-						console.log(`Getting part ${start} - ${end}`);
-						const { data } = await Axios.get<Readable>(format.url, {
-							responseType: "stream",
-							timeout: 15_000,
-							headers: {
-								...format.http_headers,
-								range: `bytes=${start}-${end}`,
-							},
-						});
-						console.log(`Got part ${start} - ${end}`);
-						return data;
-					} catch (e) {
-						if (e instanceof AxiosError) {
-							throw new Error(
-								`HTTP request to YouTube for part of stream resulted in status code "${e.response?.status ?? "UNKNOWN"}"`,
-							);
+					console.log(`Getting part ${start} - ${end}`);
+
+					const args = [
+						"-f",
+						format.format_id,
+						"-o",
+						"-",
+						"--no-update",
+						"--downloader",
+						"native",
+					];
+
+					const extractorArgs = this.config.getExtractorArgs();
+					if (extractorArgs) {
+						const parts = extractorArgs.split(" ");
+						for (const part of parts) {
+							args.push("--extractor-args", part);
 						}
-						throw e;
 					}
+					args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
+
+					const endSession = await this.createDlpSession();
+					const child = spawn(
+						"yt-dlp",
+						[...args, `https://youtube.com/watch?v=${videoId}`],
+						{ stdio: [null, "pipe", null] },
+					);
+
+					child.stderr.on("data", (chunk: Buffer) => {
+						console.log(`[yt-dlp part] ${chunk.toString().trim()}`);
+					});
+
+					const pass = new PassThrough();
+					let pos = 0;
+					let done = false;
+
+					// Release the DLP session once data starts flowing (yt-dlp has the URL)
+					child.stdout.once("data", () => endSession());
+
+					child.stdout.on("data", (chunk: Buffer) => {
+						if (done) return;
+
+						const chunkStart = pos;
+						const chunkEnd = pos + chunk.length - 1;
+						pos += chunk.length;
+
+						if (chunkEnd < start) return; // before requested range
+
+						if (chunkStart > end) {
+							done = true;
+							child.kill("SIGKILL");
+							if (!pass.writableEnded) pass.end();
+							return;
+						}
+
+						const sliceStart = Math.max(start - chunkStart, 0);
+						const sliceEnd = Math.min(end - chunkStart + 1, chunk.length);
+						pass.push(chunk.subarray(sliceStart, sliceEnd));
+
+						if (pos > end) {
+							done = true;
+							child.kill("SIGKILL");
+							if (!pass.writableEnded) pass.end();
+						}
+					});
+
+					child.stdout.on("end", () => {
+						if (!pass.writableEnded && !pass.destroyed) pass.end();
+					});
+
+					child.on("error", (err) => {
+						endSession();
+						if (!pass.destroyed) pass.destroy(err);
+					});
+
+					child.on("close", (code) => {
+						endSession();
+						if (code !== 0 && !done && !pass.destroyed) {
+							pass.destroy(new Error(`yt-dlp exited with code ${code}`));
+						} else if (!pass.writableEnded && !pass.destroyed) {
+							pass.end();
+						}
+					});
+
+					return pass;
 				},
 			};
-		} catch (e) {
-			if (e instanceof AxiosError) {
-				throw new Error(
-					`HTTP request to YouTube for stream HEAD resulted in status code "${e.response?.status ?? "UNKNOWN"}"`,
-				);
-			}
-			throw e;
-		}
 	}
 
 	async getAudioProducer(
@@ -250,7 +317,6 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					"--format",
 					"bestaudio",
 					"--no-update",
-					"--force-ipv4",
 				];
 
 				const extractorArgs = this.config.getExtractorArgs();
@@ -260,6 +326,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 						args.push("--extractor-args", part);
 					}
 				}
+				args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
 
 				const child = spawn("yt-dlp", [
 					...args,
