@@ -6,7 +6,6 @@ import {
 	StreamAudioProducer,
 	TaskRunContext,
 } from "@sdk";
-import { Innertube } from "youtubei.js";
 import Axios, { AxiosError } from "axios";
 import { Readable, PassThrough } from "stream";
 import { spawn } from "child_process";
@@ -210,7 +209,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 							timeout: 15_000,
 							headers: {
 								...format.http_headers,
-								// range: `bytes=${start}-${end}`,
+								range: `bytes=${start}-${end}`,
 							},
 						});
 						console.log(`Got part ${start} - ${end}`);
