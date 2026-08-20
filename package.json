@@ -1,7 +1,7 @@
 {
 	"name": "youtube-music",
 	"version": "0.0.1",
-	"pipebombEntry": "dist/main.js",
+	"pipebombEntry": "dist/src/main.js",
 	"scripts": {
 		"build": "rimraf dist && tsc",
 		"dev": "nodemon -w src -e ts -x \"npm run build || exit 1\"",
