@@ -33,8 +33,16 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	}
 
 	private getCookiesArgs(): string[] {
+		const args: string[] = [];
 		const browser = this.config.getCookiesBrowser();
-		return browser ? ["--cookies-from-browser", browser] : [];
+		if (browser) {
+			args.push("--cookies-from-browser", browser);
+		}
+		const file = this.config.getCookiesFile();
+		if (file) {
+			args.push("--cookies", file);
+		}
+		return args;
 	}
 
 	private getPluginDirsArgs(): string[] {

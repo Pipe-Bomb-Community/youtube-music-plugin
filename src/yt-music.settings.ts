@@ -6,17 +6,20 @@ export class YTMusicConfigManager implements ConfigManager {
 	private extractorArgs: string;
 	private concurrentProducers: number;
 	private cookiesBrowser: string;
+	private cookiesFile: string;
 	private pluginDirs: string;
 
 	constructor(options?: {
 		extractorArgs?: string;
 		concurrentProducers?: number;
 		cookiesBrowser?: string;
+		cookiesFile?: string;
 		pluginDirs?: string;
 	}) {
 		this.extractorArgs = options?.extractorArgs ?? "";
 		this.concurrentProducers = options?.concurrentProducers ?? 1;
 		this.cookiesBrowser = options?.cookiesBrowser ?? "";
+		this.cookiesFile = options?.cookiesFile ?? "";
 		this.pluginDirs = options?.pluginDirs ?? "";
 	}
 
@@ -29,9 +32,12 @@ export class YTMusicConfigManager implements ConfigManager {
 	getCookiesBrowser() {
 		return this.cookiesBrowser || null;
 	}
+	getCookiesFile() {
+		return this.cookiesFile || null;
+	}
 	getPluginDirs(): string[] {
 		return this.pluginDirs
-			? this.pluginDirs.split("\n").map((s) => s.trim()).filter(Boolean)
+			? this.pluginDirs.split(":").map((s) => s.trim()).filter(Boolean)
 			: [];
 	}
 
@@ -44,6 +50,8 @@ export class YTMusicConfigManager implements ConfigManager {
 			(await this.api.getValue("concurrent-producers", "integer")) ?? 3;
 		this.cookiesBrowser =
 			(await this.api.getValue("cookies-browser", "string")) ?? "";
+		this.cookiesFile =
+			(await this.api.getValue("cookies-file", "string")) ?? "";
 		this.pluginDirs =
 			(await this.api.getValue("plugin-dirs", "string")) ?? "";
 	}
@@ -69,7 +77,7 @@ export class YTMusicConfigManager implements ConfigManager {
 							id: "plugin-dirs",
 							placeholder: "/path/to/bgutil-ytdlp-pot-provider/plugin",
 							value: this.pluginDirs,
-							name: "Plugin Directories (one per line)",
+							name: "Plugin Directories (colon separated)",
 						},
 						{
 							type: "text",
@@ -84,6 +92,13 @@ export class YTMusicConfigManager implements ConfigManager {
 							placeholder: "firefox",
 							value: this.cookiesBrowser,
 							name: "Cookies Browser (for authentication)",
+						},
+						{
+							type: "text",
+							id: "cookies-file",
+							placeholder: "/path/to/cookies.txt",
+							value: this.cookiesFile,
+							name: "Cookies File (for authentication)",
 						},
 					],
 				},
@@ -125,6 +140,18 @@ export class YTMusicConfigManager implements ConfigManager {
 					await this.api.setValue("cookies-browser", "string", cookiesBrowser);
 				} else {
 					this.api.delete("cookies-browser");
+				}
+			}
+		}
+
+		const cookiesFile: string | undefined = values["cookies-file"]?.trim();
+		if (typeof cookiesFile == "string") {
+			if (cookiesFile != this.cookiesFile) {
+				this.cookiesFile = cookiesFile;
+				if (cookiesFile) {
+					await this.api.setValue("cookies-file", "string", cookiesFile);
+				} else {
+					this.api.delete("cookies-file");
 				}
 			}
 		}
