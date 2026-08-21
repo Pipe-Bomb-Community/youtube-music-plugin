@@ -6,12 +6,12 @@ import {
 	StreamAudioProducer,
 	TaskRunContext,
 } from "@sdk";
-import { PassThrough } from "stream";
 import { spawn } from "child_process";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
-import { getMimeType } from "./utils.js";
+import { DownloadCache } from "./cache/download-cache.js";
+import { fetchUrl, getMimeType } from "./utils.js";
 
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
@@ -43,6 +43,21 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			.flatMap((dir) => ["--plugin-dirs", dir]);
 	}
 
+	private getEnvWithPlugins(): NodeJS.ProcessEnv {
+		const dirs = this.config.getPluginDirs();
+		if (dirs.length === 0) {
+			return process.env;
+		}
+		const env = { ...process.env };
+		const pythonPath = dirs.join(":");
+		// PYTHONPATH is required for Nix-installed yt-dlp where --plugin-dirs
+		// is silently ignored due to Python path isolation (PYTHONNOUSERSITE=true).
+		env.PYTHONPATH = env.PYTHONPATH
+			? `${pythonPath}:${env.PYTHONPATH}`
+			: pythonPath;
+		return env;
+	}
+
 	private async createDlpSession() {
 		await new Promise<void>((resolve) => {
 			if (this.activeProducerCreations < this.config.getConcurrentProducers()) {
@@ -72,233 +87,111 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		};
 	}
 
+	private startDownload(format: YtDlpFormat, downloadCache: DownloadCache): void {
+		fetchUrl(
+			format.url,
+			format.http_headers as unknown as Record<string, string>,
+		).then(
+			(res) => {
+				if (res.statusCode !== 200 && res.statusCode !== 206) {
+					res.resume();
+					downloadCache.fail(
+						new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`),
+					);
+					return;
+				}
+				res.on("data", (chunk: Buffer) => downloadCache.write(chunk));
+				res.on("end", () => downloadCache.finish());
+				res.on("error", (err) => downloadCache.fail(err));
+			},
+			(err) => downloadCache.fail(err),
+		);
+	}
+
 	async createStreamAudioProducer(
 		format: YtDlpFormat,
 		videoId: string,
 	): Promise<StreamAudioProducer> {
-		console.log(format);
-			const mimeType = getMimeType(format);
-			const size = format.filesize ?? format.filesize_approx;
-			if (!size || isNaN(size)) {
-				throw new Error("Invalid or unknown content-length");
-			}
+		const mimeType = getMimeType(format);
+		const size = format.filesize ?? format.filesize_approx;
+		if (!size || isNaN(size)) {
+			throw new Error("Invalid or unknown content-length");
+		}
 
-			let duration: number | null = null;
+		const downloadCache = new DownloadCache(size);
+		let downloadStarted = false;
+		let duration: number | null = null;
 
-			return {
-				type: "stream",
-				cacheable: true,
-				getDuration: async () => {
-					if (duration !== null) {
-						return duration;
-					}
-					return await new Promise<number>((resolve, reject) => {
-						const child = spawn("ffprobe", [
-							"-v",
-							"error",
-							"-show_entries",
-							"format=duration",
-							"-of",
-							"default=noprint_wrappers=1:nokey=1",
-							format.url,
-						]);
+		const ensureDownload = () => {
+			if (downloadStarted) return;
+			downloadStarted = true;
+			this.startDownload(format, downloadCache);
+		};
 
-						const timer = setTimeout(() => {
-							child.kill("SIGKILL");
-							reject(new Error("FFprobe timed out"));
-						}, 15_000);
+		return {
+			type: "stream",
+			cacheable: true,
+			getDuration: async () => {
+				if (duration !== null) {
+					return duration;
+				}
+				return await new Promise<number>((resolve, reject) => {
+					const child = spawn("ffprobe", [
+						"-v",
+						"error",
+						"-show_entries",
+						"format=duration",
+						"-of",
+						"default=noprint_wrappers=1:nokey=1",
+						format.url,
+					]);
 
-						child.stderr.on("data", (chunk: Buffer) => {
-							console.error(`[FFprobe] ${chunk.toString()}`);
-						});
-
-						let output = "";
-
-						child.stdout.on("data", (chunk: Buffer) => {
-							output += chunk.toString();
-						});
-
-						child.on("close", (code) => {
-							clearTimeout(timer);
-							if (code) {
-								reject(new Error(`Exited with code ${code}`));
-							} else {
-								const computedDuration = parseFloat(output.trim());
-								if (isNaN(computedDuration)) {
-									reject(new Error(`Invalid duration`));
-								} else {
-									duration = computedDuration;
-									resolve(computedDuration);
-								}
-							}
-						});
-					});
-				},
-				getMetadata: async () => ({
-					mimeType,
-					size,
-				}),
-				getStream: async () => {
-					const args = [
-						"-f",
-						format.format_id,
-						"-o",
-						"-",
-						"--http-chunk-size",
-						"10M",
-						"--downloader",
-						"native",
-						"--no-update",
-					];
-
-					const extractorArgs = this.config.getExtractorArgs();
-					if (extractorArgs) {
-						const parts = extractorArgs.split(" ");
-						for (const part of parts) {
-							args.push("--extractor-args", part);
-						}
-					}
-					args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
-
-					const endSession = await this.createDlpSession();
-					const child = spawn(
-						"yt-dlp",
-						[...args, `https://youtube.com/watch?v=${videoId}`],
-						{
-							stdio: [null, "pipe", null],
-						},
-					);
+					const timer = setTimeout(() => {
+						child.kill("SIGKILL");
+						reject(new Error("FFprobe timed out"));
+					}, 15_000);
 
 					child.stderr.on("data", (chunk: Buffer) => {
-						console.log(`[yt-dlp] ${chunk.toString().trim()}`);
+						console.error(`[FFprobe] ${chunk.toString()}`);
 					});
 
-					child.on("close", (code) => {
-						endSession();
-						if (code !== 0) {
-							console.error(`yt-dlp exited with code ${code}`);
-						}
-					});
-
-					const speedo = new PassThrough();
-
-					let lastReportTime = Date.now();
-					let totalBytes = 0;
-					let lastReportBytes = 0;
-
-					speedo.once("data", () => endSession()); // once yt-dlp starts sending data we know it's finished with youtube frontend
-
-					speedo.on("data", (chunk: Buffer) => {
-						totalBytes += chunk.length;
-						const now = Date.now();
-						const duration = now - lastReportTime;
-						if (duration >= 1000) {
-							lastReportTime = now;
-							const bytesSinceLast = totalBytes - lastReportBytes;
-
-							const speedMBps =
-								bytesSinceLast / (duration / 1000) / (1024 * 1024);
-							const totalMB = totalBytes / (1024 * 1024);
-
-							console.log(
-								`[Download Progress] Speed: ${speedMBps.toFixed(2)} MB/s | Total Downloaded: ${totalMB.toFixed(2)} MB`,
-							);
-
-							lastReportTime = now;
-							lastReportBytes = totalBytes;
-						}
-					});
-
-					return child.stdout.pipe(speedo);
-				},
-				getPart: async (start, end) => {
-					console.log(`Getting part ${start} - ${end}`);
-
-					const args = [
-						"-f",
-						format.format_id,
-						"-o",
-						"-",
-						"--no-update",
-						"--downloader",
-						"native",
-					];
-
-					const extractorArgs = this.config.getExtractorArgs();
-					if (extractorArgs) {
-						const parts = extractorArgs.split(" ");
-						for (const part of parts) {
-							args.push("--extractor-args", part);
-						}
-					}
-					args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
-
-					const endSession = await this.createDlpSession();
-					const child = spawn(
-						"yt-dlp",
-						[...args, `https://youtube.com/watch?v=${videoId}`],
-						{ stdio: [null, "pipe", null] },
-					);
-
-					child.stderr.on("data", (chunk: Buffer) => {
-						console.log(`[yt-dlp part] ${chunk.toString().trim()}`);
-					});
-
-					const pass = new PassThrough();
-					let pos = 0;
-					let done = false;
-
-					// Release the DLP session once data starts flowing (yt-dlp has the URL)
-					child.stdout.once("data", () => endSession());
+					let output = "";
 
 					child.stdout.on("data", (chunk: Buffer) => {
-						if (done) return;
-
-						const chunkStart = pos;
-						const chunkEnd = pos + chunk.length - 1;
-						pos += chunk.length;
-
-						if (chunkEnd < start) return; // before requested range
-
-						if (chunkStart > end) {
-							done = true;
-							child.kill("SIGKILL");
-							if (!pass.writableEnded) pass.end();
-							return;
-						}
-
-						const sliceStart = Math.max(start - chunkStart, 0);
-						const sliceEnd = Math.min(end - chunkStart + 1, chunk.length);
-						pass.push(chunk.subarray(sliceStart, sliceEnd));
-
-						if (pos > end) {
-							done = true;
-							child.kill("SIGKILL");
-							if (!pass.writableEnded) pass.end();
-						}
-					});
-
-					child.stdout.on("end", () => {
-						if (!pass.writableEnded && !pass.destroyed) pass.end();
-					});
-
-					child.on("error", (err) => {
-						endSession();
-						if (!pass.destroyed) pass.destroy(err);
+						output += chunk.toString();
 					});
 
 					child.on("close", (code) => {
-						endSession();
-						if (code !== 0 && !done && !pass.destroyed) {
-							pass.destroy(new Error(`yt-dlp exited with code ${code}`));
-						} else if (!pass.writableEnded && !pass.destroyed) {
-							pass.end();
+						clearTimeout(timer);
+						if (code) {
+							reject(new Error(`Exited with code ${code}`));
+						} else {
+							const d = parseFloat(output.trim());
+							if (isNaN(d)) {
+								reject(new Error("Invalid duration"));
+							} else {
+								duration = d;
+								resolve(d);
+							}
 						}
 					});
-
-					return pass;
-				},
-			};
+				});
+			},
+			getMetadata: async () => ({
+				mimeType,
+				size,
+			}),
+			getStream: async () => {
+				ensureDownload();
+				return downloadCache.toReadable();
+			},
+			getPart: async (start, end) => {
+				console.log(`Getting part ${start} - ${end}`);
+				ensureDownload();
+				await downloadCache.waitFor(end + 1);
+				return downloadCache.getSlice(start, end);
+			},
+		};
 	}
 
 	async getAudioProducer(
@@ -331,7 +224,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				const child = spawn("yt-dlp", [
 					...args,
 					`https://youtube.com/watch?v=${trackId}`,
-				]);
+				], { env: this.getEnvWithPlugins() });
 
 				const timer = setTimeout(() => {
 					child.kill("SIGKILL");
@@ -373,7 +266,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				}
 
 				if (format.protocol.includes("m3u8")) {
-					return false; // todo: support
+					return false;
 				}
 
 				if (format.has_drm) {
@@ -406,21 +299,9 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				return codecScore(b.acodec) - codecScore(a.acodec);
 			});
 
-		// console.log(`Found ${supportedFormats.length} supported formats`);
-
-		for (const [index, format] of supportedFormats.entries()) {
-			try {
-				if (format.url) {
-					return await this.createStreamAudioProducer(format, trackId);
-				}
-			} catch (e) {
-				if (index == supportedFormats.length - 1) {
-					throw e;
-				}
-			}
-		}
-
-		throw new Error("No supported formats");
+		const bestFormat = supportedFormats.find((f) => !!f.url);
+		if (!bestFormat) throw new Error("No supported formats");
+		return this.createStreamAudioProducer(bestFormat, trackId);
 	}
 
 	async scan(_taskRunContext: TaskRunContext): Promise<void> {}

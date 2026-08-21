@@ -60,14 +60,14 @@ export class YTMusicConfigManager implements ConfigManager {
 							type: "text",
 							id: "extractor-args",
 							placeholder:
-								"youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416 youtube:player_client=mweb",
+								"youtubepot-bgutilhttp:base_url=http://127.0.0.1:4416",
 							value: this.extractorArgs,
 							name: "Extractor Arguments",
 						},
 						{
 							type: "text",
 							id: "plugin-dirs",
-							placeholder: "/path/to/bgutil-ytdlp-pot-provider",
+							placeholder: "/path/to/bgutil-ytdlp-pot-provider/plugin",
 							value: this.pluginDirs,
 							name: "Plugin Directories (one per line)",
 						},

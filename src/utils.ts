@@ -10,6 +10,8 @@ import { YTMThumbnail } from "./types.js";
 import Axios from "axios";
 import { YTNodes, YTMusic, RawData, Parser, IRawResponse } from "youtubei.js";
 import { YtDlpFormat } from "./types/yt-dlp.js";
+import { request as httpsRequest } from "https";
+import type { IncomingMessage } from "http";
 
 export function compare<T extends string | number>(a: T, b: T) {
 	if (a < b) {
@@ -671,4 +673,34 @@ export function getMimeType(format: YtDlpFormat): string {
 		default:
 			return "application/octet-stream";
 	}
+}
+
+export function fetchUrl(
+	url: string,
+	headers: Record<string, string>,
+	redirects = 0,
+): Promise<IncomingMessage> {
+	if (redirects > 5) {
+		return Promise.reject(new Error("Too many redirects"));
+	}
+	return new Promise((resolve, reject) => {
+		const req = httpsRequest(url, { headers }, (res) => {
+			if (
+				res.statusCode &&
+				res.statusCode >= 300 &&
+				res.statusCode < 400 &&
+				res.headers.location
+			) {
+				res.resume();
+				fetchUrl(res.headers.location, headers, redirects + 1).then(
+					resolve,
+					reject,
+				);
+				return;
+			}
+			resolve(res);
+		});
+		req.on("error", reject);
+		req.end();
+	});
 }
