@@ -35,10 +35,11 @@ export class YTMusicCache {
 		this.cache = new PersistentCache(dbFile);
 	}
 
-	async getTrack(videoId: string) {
-		const response = await this.cache.getOrFind<{
+	private async getCachedTrackEntry(videoId: string) {
+		return this.cache.getOrFind<{
 			id: string;
 			track: EphemeralTrack | null;
+			albumId: string | null;
 		}>(
 			`song-upnext:${videoId}`,
 			async () => {
@@ -47,19 +48,22 @@ export class YTMusicCache {
 					.then((panel_1) => panel_1.contents?.[0]);
 				if (info && info.is(YTNodes.PlaylistPanelVideo)) {
 					const track = upNextToEphemeralTrack(info, videoId);
-					return { id: videoId, track };
+					return { id: videoId, track, albumId: info.album?.id ?? null };
 				}
-				return {
-					id: videoId,
-					track: null,
-				};
+				return { id: videoId, track: null, albumId: null };
 			},
 			{
 				ttl: MONTH,
 			},
 		);
+	}
 
-		return response.track;
+	async getTrack(videoId: string) {
+		return (await this.getCachedTrackEntry(videoId)).track;
+	}
+
+	async getTrackAlbumId(videoId: string): Promise<string | null> {
+		return (await this.getCachedTrackEntry(videoId)).albumId ?? null;
 	}
 
 	async getTracks(trackIds: string[]) {
@@ -78,6 +82,7 @@ export class YTMusicCache {
 		const cacheTracks = await this.cache.getMany<{
 			id: string;
 			track: EphemeralTrack | null;
+			albumId: string | null;
 		}>(Array.from(indexMap.keys()).map((trackId) => `song-upnext:${trackId}`));
 		for (const cacheTrack of cacheTracks) {
 			if (cacheTrack) {

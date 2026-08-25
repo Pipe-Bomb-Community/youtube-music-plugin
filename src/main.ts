@@ -9,6 +9,8 @@ import { ChannelIdTrackIdentifier } from "./identity/channel-id.track-identifier
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
 import { HandleArtistIdentifier } from "./identity/handle.artist-identifier.js";
+import { AlbumIdTrackIdentifier } from "./identity/album-id.track-identifier.js";
+import { ArtistIdAlbumIdentifier } from "./identity/artist-id.album-identifier.js";
 import { YTMusicExternalUrlSource } from "./ytmusic.url-source.js";
 
 export default class Plugin implements PipeBomb.Plugin {
@@ -37,7 +39,9 @@ export default class Plugin implements PipeBomb.Plugin {
 
 			this.api.registerTrackIdentifier(new TrackIdTrackIdentifier());
 			this.api.registerTrackIdentifier(new ChannelIdTrackIdentifier(cache));
+			this.api.registerTrackIdentifier(new AlbumIdTrackIdentifier(cache));
 			this.api.registerArtistIdentifier(new HandleArtistIdentifier(cache));
+			this.api.registerAlbumIdentifier(new ArtistIdAlbumIdentifier(cache));
 
 			this.api.registerExternalUrlSource(new YTMusicExternalUrlSource());
 

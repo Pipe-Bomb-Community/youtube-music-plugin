@@ -47,9 +47,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	}
 
 	private getPluginDirsArgs(): string[] {
-		return this.config
-			.getPluginDirs()
-			.flatMap((dir) => ["--plugin-dirs", dir]);
+		return this.config.getPluginDirs().flatMap((dir) => ["--plugin-dirs", dir]);
 	}
 
 	private getEnvWithPlugins(): NodeJS.ProcessEnv {
@@ -279,12 +277,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		const endSession = await this.createDlpSession();
 		const response = await new Promise<YtDlpResponse>(
 			async (resolve, reject) => {
-				const args = [
-					"--dump-json",
-					"--format",
-					"bestaudio",
-					"--no-update",
-				];
+				const args = ["--dump-json", "--format", "bestaudio", "--no-update"];
 
 				const extractorArgs = this.config.getExtractorArgs();
 				if (extractorArgs) {
@@ -295,10 +288,11 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				}
 				args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
 
-				const child = spawn("yt-dlp", [
-					...args,
-					`https://youtube.com/watch?v=${trackId}`,
-				], { env: this.getEnvWithPlugins() });
+				const child = spawn(
+					"yt-dlp",
+					[...args, `https://youtube.com/watch?v=${trackId}`],
+					{ env: this.getEnvWithPlugins() },
+				);
 
 				const timer = setTimeout(() => {
 					child.kill("SIGKILL");

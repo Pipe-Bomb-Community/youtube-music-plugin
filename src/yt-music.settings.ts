@@ -37,7 +37,10 @@ export class YTMusicConfigManager implements ConfigManager {
 	}
 	getPluginDirs(): string[] {
 		return this.pluginDirs
-			? this.pluginDirs.split(":").map((s) => s.trim()).filter(Boolean)
+			? this.pluginDirs
+					.split(":")
+					.map((s) => s.trim())
+					.filter(Boolean)
 			: [];
 	}
 
@@ -52,8 +55,7 @@ export class YTMusicConfigManager implements ConfigManager {
 			(await this.api.getValue("cookies-browser", "string")) ?? "";
 		this.cookiesFile =
 			(await this.api.getValue("cookies-file", "string")) ?? "";
-		this.pluginDirs =
-			(await this.api.getValue("plugin-dirs", "string")) ?? "";
+		this.pluginDirs = (await this.api.getValue("plugin-dirs", "string")) ?? "";
 	}
 
 	async getConfigOptions(): Promise<ConfigNode> {

@@ -73,15 +73,21 @@ async function consumePart(part: Buffer | Readable): Promise<number> {
 		const part1 = await audioProducer.getPart(0, partSize - 1);
 		const bytes1 = await consumePart(part1);
 		const ok1 = bytes1 === partSize;
-		console.log(`  Got ${bytes1} bytes, expected ${partSize} — ${ok1 ? "PASS" : "FAIL"}`);
+		console.log(
+			`  Got ${bytes1} bytes, expected ${partSize} — ${ok1 ? "PASS" : "FAIL"}`,
+		);
 
 		const midStart = Math.floor(metadata.size / 2);
 		const midEnd = midStart + partSize - 1;
-		console.log(`\nTest 2: getPart middle ${partSize} bytes (${midStart}–${midEnd})`);
+		console.log(
+			`\nTest 2: getPart middle ${partSize} bytes (${midStart}–${midEnd})`,
+		);
 		const part2 = await audioProducer.getPart(midStart, midEnd);
 		const bytes2 = await consumePart(part2);
 		const ok2 = bytes2 === partSize;
-		console.log(`  Got ${bytes2} bytes, expected ${partSize} — ${ok2 ? "PASS" : "FAIL"}`);
+		console.log(
+			`  Got ${bytes2} bytes, expected ${partSize} — ${ok2 ? "PASS" : "FAIL"}`,
+		);
 
 		if (!ok1 || !ok2) {
 			console.error("\nSome tests FAILED");
