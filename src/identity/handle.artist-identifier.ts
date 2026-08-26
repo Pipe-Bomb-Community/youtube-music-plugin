@@ -3,7 +3,7 @@ import {
 	ArtistInformationHelper,
 	IdentifierDependency,
 	Logger,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import { YTMusicCache } from "../cache/ytmusic-cache.js";
 
 export class HandleArtistIdentifier implements ArtistIdentifier {

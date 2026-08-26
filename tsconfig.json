@@ -6,7 +6,6 @@
 		"lib": ["ESNext"],
 
 		"paths": {
-			"@sdk": ["../../sdk/index.d.ts"],
 			"@/*": ["./src/*"]
 		},
 

@@ -5,7 +5,7 @@ import {
 	LibraryHandlerApiContext,
 	StreamAudioProducer,
 	TaskRunContext,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import Axios, { AxiosError } from "axios";
 import { Readable, PassThrough } from "stream";
 import { spawn } from "child_process";

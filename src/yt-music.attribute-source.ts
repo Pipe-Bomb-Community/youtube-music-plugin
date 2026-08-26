@@ -9,7 +9,7 @@ import {
 	BufferAttributeValue,
 	TrackAttributionHelper,
 	TrackMetadata,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import Axios from "axios";
 import { YTMArtistStub, YTMThumbnail } from "./types.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";

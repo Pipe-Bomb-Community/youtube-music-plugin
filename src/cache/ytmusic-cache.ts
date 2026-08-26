@@ -7,7 +7,7 @@ import {
 	EphemeralArtistContent,
 	EphemeralTrack,
 	IdentifiableAlbumMetadata,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import {
 	deserializeAllThumbnails,
 	listItemToTrack,

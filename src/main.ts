@@ -1,4 +1,4 @@
-import type PipeBomb from "@sdk";
+import type PipeBomb from "@pipe-bomb/plugin-sdk";
 import { YTMusicLibraryHandler } from "./yt-music.library-handler.js";
 import { YTMusicEphemeralSource } from "./yt-music.ephemeral-source.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";

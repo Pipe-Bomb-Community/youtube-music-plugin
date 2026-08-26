@@ -4,7 +4,7 @@ import {
 	ExternalUrl,
 	ExternalUrlSource,
 	TrackExternalUrlHelper,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 
 export class YTMusicExternalUrlSource implements ExternalUrlSource {
 	getArtistUrls(helper: ArtistExternalUrlHelper): ExternalUrl[] | null {

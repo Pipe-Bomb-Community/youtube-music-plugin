@@ -4,7 +4,7 @@ import {
 	TrackIdentifier,
 	TrackIdentifierTarget,
 	TrackInformationHelper,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 
 export class TrackIdTrackIdentifier implements TrackIdentifier {
 	readonly id = "youtube_music_track_id";

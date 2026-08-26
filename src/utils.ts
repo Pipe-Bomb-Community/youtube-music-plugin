@@ -5,7 +5,7 @@ import {
 	EphemeralTrack,
 	IdentifiableAlbumMetadata,
 	IdentifiableTrackArtistMetadata,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import { YTMThumbnail } from "./types.js";
 import Axios from "axios";
 import { YTNodes, YTMusic, RawData, Parser, IRawResponse } from "youtubei.js";

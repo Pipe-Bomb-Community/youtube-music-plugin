@@ -13,7 +13,7 @@ import {
 	IdentifiableArtistMetadata,
 	IdentifiableTrackArtistMetadata,
 	LibraryHandler,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import { YTMusicLibraryHandler } from "./yt-music.library-handler.js";
 import { YTMusicAttributeSource } from "./yt-music.attribute-source.js";
 import Innertube, { YTNodes } from "youtubei.js";

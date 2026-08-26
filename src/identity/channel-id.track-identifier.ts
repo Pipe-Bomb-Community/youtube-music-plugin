@@ -4,7 +4,7 @@ import {
 	TrackIdentifier,
 	TrackIdentifierTarget,
 	TrackInformationHelper,
-} from "@sdk";
+} from "@pipe-bomb/plugin-sdk";
 import { YTMusicCache } from "../cache/ytmusic-cache.js";
 
 export class ChannelIdTrackIdentifier implements TrackIdentifier {
