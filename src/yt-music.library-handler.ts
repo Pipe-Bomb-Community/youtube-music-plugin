@@ -23,6 +23,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	constructor(
 		private readonly cache: YTMusicCache,
 		private readonly config: YTMusicConfigManager,
+		private readonly ytDlpPath: Promise<string>,
 	) {}
 
 	getName(): string {
@@ -182,9 +183,12 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 						}
 					}
 
-					const endSession = await this.createDlpSession();
+					const [endSession, ytDlp] = await Promise.all([
+						this.createDlpSession(),
+						this.ytDlpPath,
+					]);
 					const child = spawn(
-						"yt-dlp",
+						ytDlp,
 						[...args, `https://youtube.com/watch?v=${videoId}`],
 						{
 							stdio: [null, "pipe", null],
@@ -274,7 +278,10 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			return null;
 		}
 
-		const endSession = await this.createDlpSession();
+		const [endSession, ytDlp] = await Promise.all([
+			this.createDlpSession(),
+			this.ytDlpPath,
+		]);
 		const response = await new Promise<YtDlpResponse>(
 			async (resolve, reject) => {
 				const args = ["--dump-json", "--format", "bestaudio", "--no-update"];
@@ -289,7 +296,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
 
 				const child = spawn(
-					"yt-dlp",
+					ytDlp,
 					[...args, `https://youtube.com/watch?v=${trackId}`],
 					{ env: this.getEnvWithPlugins() },
 				);

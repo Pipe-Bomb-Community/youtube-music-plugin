@@ -12,6 +12,7 @@ import { HandleArtistIdentifier } from "./identity/handle.artist-identifier.js";
 import { AlbumIdTrackIdentifier } from "./identity/album-id.track-identifier.js";
 import { ArtistIdAlbumIdentifier } from "./identity/artist-id.album-identifier.js";
 import { YTMusicExternalUrlSource } from "./ytmusic.url-source.js";
+import { resolveYtDlp } from "./ytdlp.js";
 
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
@@ -28,6 +29,8 @@ export default class Plugin implements PipeBomb.Plugin {
 		this.api.registerConfigManager(configManager);
 
 		this.api.requestCacheDirectory().then(async (cacheDir) => {
+			const ytDlpPath = resolveYtDlp(cacheDir);
+
 			const innertube = await Innertube.create({
 				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
 			});
@@ -45,7 +48,7 @@ export default class Plugin implements PipeBomb.Plugin {
 
 			this.api.registerExternalUrlSource(new YTMusicExternalUrlSource());
 
-			const libraryHandler = new YTMusicLibraryHandler(cache, configManager);
+			const libraryHandler = new YTMusicLibraryHandler(cache, configManager, ytDlpPath);
 			const attributeSource = new YTMusicAttributeSource(cache);
 			const ephemeralSource = new YTMusicEphemeralSource(
 				libraryHandler,
