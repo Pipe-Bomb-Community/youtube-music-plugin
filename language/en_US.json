@@ -1,3 +1,4 @@
 {
-	"plugin.youtube-music.name": "YouTube Music"
+	"plugin.youtube-music.name": "YouTube Music",
+	"task.plugin.youtube-music.update-yt-dlp.name": "Update YT-DLP binary"
 }

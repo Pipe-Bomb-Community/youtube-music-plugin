@@ -62,16 +62,21 @@ async function downloadFile(url: string, dest: string): Promise<void> {
 	});
 }
 
-export async function resolveYtDlp(cacheDir: string): Promise<string> {
+export type YtDlpResolution = {
+	path: string;
+	managed: boolean;
+};
+
+export async function resolveYtDlp(cacheDir: string): Promise<YtDlpResolution> {
 	const system = await findInPath();
 	if (system) {
-		return system;
+		return { path: system, managed: false };
 	}
 
 	const binaryName = process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
 	const cached = path.join(cacheDir, binaryName);
 	if (existsSync(cached)) {
-		return cached;
+		return { path: cached, managed: true };
 	}
 
 	const url = getBinaryUrl();
@@ -81,5 +86,18 @@ export async function resolveYtDlp(cacheDir: string): Promise<string> {
 		await chmod(cached, 0o755);
 	}
 
-	return cached;
+	return { path: cached, managed: true };
+}
+
+export async function updateYtDlp(
+	binaryPath: string,
+	logger: { debug(message: any): void },
+): Promise<void> {
+	const { stdout, stderr } = await execFileAsync(binaryPath, ["-U"]);
+	for (const line of [...stdout.split("\n"), ...stderr.split("\n")]) {
+		const trimmed = line.trim();
+		if (trimmed) {
+			logger.debug(trimmed);
+		}
+	}
 }

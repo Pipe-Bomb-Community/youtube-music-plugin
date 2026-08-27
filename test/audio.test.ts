@@ -4,6 +4,7 @@ import { YTMusicConfigManager } from "@/yt-music.settings.js";
 import path from "path";
 import Innertube, { UniversalCache } from "youtubei.js";
 import { Readable } from "stream";
+import { resolveYtDlp } from "@/ytdlp.js";
 
 if (process.argv.length < 3) {
 	console.error("Video ID not specified");
@@ -54,7 +55,14 @@ async function consumePart(part: Buffer | Readable): Promise<number> {
 		setValue: async () => {},
 	});
 
-	const libraryHandler = new YTMusicLibraryHandler(cache, configManager);
+	const ytDlpResolution = await resolveYtDlp(cacheDir);
+	const ytDlpPath = Promise.resolve(ytDlpResolution.path);
+
+	const libraryHandler = new YTMusicLibraryHandler(
+		cache,
+		configManager,
+		ytDlpPath,
+	);
 	console.log(`Attempting to load https://www.youtube.com/watch?v=${videoId}`);
 
 	const audioProducer = await libraryHandler.getAudioProducer(videoId, null);

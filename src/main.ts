@@ -12,7 +12,7 @@ import { HandleArtistIdentifier } from "./identity/handle.artist-identifier.js";
 import { AlbumIdTrackIdentifier } from "./identity/album-id.track-identifier.js";
 import { ArtistIdAlbumIdentifier } from "./identity/artist-id.album-identifier.js";
 import { YTMusicExternalUrlSource } from "./ytmusic.url-source.js";
-import { resolveYtDlp } from "./ytdlp.js";
+import { resolveYtDlp, updateYtDlp } from "./ytdlp.js";
 
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
@@ -29,7 +29,8 @@ export default class Plugin implements PipeBomb.Plugin {
 		this.api.registerConfigManager(configManager);
 
 		this.api.requestCacheDirectory().then(async (cacheDir) => {
-			const ytDlpPath = resolveYtDlp(cacheDir);
+			const ytDlpResolution = await resolveYtDlp(cacheDir);
+			const ytDlpPath = Promise.resolve(ytDlpResolution.path);
 
 			const innertube = await Innertube.create({
 				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
@@ -60,6 +61,18 @@ export default class Plugin implements PipeBomb.Plugin {
 			this.api.registerLibraryHandler(libraryHandler);
 			this.api.registerAttributeSource(attributeSource);
 			this.api.registerEphemeralSource(ephemeralSource);
+
+			if (ytDlpResolution.managed) {
+				this.api.registerTask({
+					id: "update-yt-dlp",
+					resumable: false,
+					run: async (ctx) => {
+						ctx.update(0);
+						await updateYtDlp(ytDlpResolution.path, this.logger);
+						ctx.update(100);
+					},
+				});
+			}
 		});
 	}
 
