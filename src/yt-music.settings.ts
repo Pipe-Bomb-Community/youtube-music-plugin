@@ -1,4 +1,8 @@
-import { ConfigManager, ConfigManagerApiContext, ConfigNode } from "@pipe-bomb/plugin-sdk";
+import {
+	ConfigManager,
+	ConfigManagerApiContext,
+	ConfigNode,
+} from "@pipe-bomb/plugin-sdk";
 
 export class YTMusicConfigManager implements ConfigManager {
 	private api!: ConfigManagerApiContext;

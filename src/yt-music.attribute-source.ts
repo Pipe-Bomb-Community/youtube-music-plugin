@@ -14,6 +14,20 @@ import Axios from "axios";
 import { YTMArtistStub, YTMThumbnail } from "./types.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
 
+function formatDuration(value: number): string {
+	let seconds = Math.floor(value);
+	let minutes = Math.floor(seconds / 60);
+	seconds -= minutes * 60;
+	const hours = Math.floor(minutes / 60);
+	minutes -= hours * 60;
+	if (hours) {
+		return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds
+			.toString()
+			.padStart(2, "0")}`;
+	}
+	return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export class YTMusicAttributeSource implements AttributeSource {
 	readonly id = "youtube-music";
 	private api!: AttributeSourceApiContext;
@@ -33,6 +47,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 				key: "duration",
 				type: "decimal",
 				supportsMultiple: false,
+				formatter: formatDuration,
 			},
 			{
 				key: "front",
@@ -42,6 +57,51 @@ export class YTMusicAttributeSource implements AttributeSource {
 			{
 				key: "year",
 				type: "integer",
+				supportsMultiple: false,
+			},
+			{
+				key: "album",
+				type: "string",
+				supportsMultiple: false,
+			},
+			{
+				key: "artist",
+				type: "string",
+				supportsMultiple: true,
+			},
+			{
+				key: "track_number",
+				type: "integer",
+				supportsMultiple: false,
+			},
+			{
+				key: "disc_number",
+				type: "integer",
+				supportsMultiple: false,
+			},
+			{
+				key: "explicit",
+				type: "boolean",
+				supportsMultiple: false,
+			},
+			{
+				key: "lyrics",
+				type: "string",
+				supportsMultiple: false,
+			},
+			{
+				key: "views",
+				type: "integer",
+				supportsMultiple: false,
+			},
+			{
+				key: "description",
+				type: "string",
+				supportsMultiple: false,
+			},
+			{
+				key: "release_date",
+				type: "string",
 				supportsMultiple: false,
 			},
 		]);
@@ -62,6 +122,11 @@ export class YTMusicAttributeSource implements AttributeSource {
 				type: "buffer",
 				supportsMultiple: false,
 			},
+			{
+				key: "description",
+				type: "string",
+				supportsMultiple: false,
+			},
 		]);
 
 		this.api.registerAlbumAttributes([
@@ -78,6 +143,43 @@ export class YTMusicAttributeSource implements AttributeSource {
 			{
 				key: "year",
 				type: "integer",
+				supportsMultiple: false,
+			},
+			{
+				key: "artist",
+				type: "string",
+				supportsMultiple: true,
+			},
+			{
+				key: "release_type",
+				type: "string",
+				supportsMultiple: true,
+				formatter: (value) => value,
+			},
+			{
+				key: "track_count",
+				type: "integer",
+				supportsMultiple: false,
+			},
+			{
+				key: "duration",
+				type: "decimal",
+				supportsMultiple: false,
+				formatter: formatDuration,
+			},
+			{
+				key: "description",
+				type: "string",
+				supportsMultiple: false,
+			},
+			{
+				key: "explicit",
+				type: "boolean",
+				supportsMultiple: false,
+			},
+			{
+				key: "release_date",
+				type: "string",
 				supportsMultiple: false,
 			},
 		]);
@@ -142,9 +244,21 @@ export class YTMusicAttributeSource implements AttributeSource {
 		if (trackId) {
 			const track = await this.cache.getTrack(trackId.identity);
 			if (track) {
+				const attributes: AttributeValue[] = track.attributes
+					? [...track.attributes]
+					: [];
+
+				const lyrics = await this.cache.getLyrics(trackId.identity);
+				if (lyrics && !attributes.some((a) => a.key == "lyrics")) {
+					attributes.push({
+						key: "lyrics",
+						value: lyrics,
+					});
+				}
+
 				return {
 					artists: track.artists,
-					attributes: track.attributes,
+					attributes,
 				};
 			}
 		}

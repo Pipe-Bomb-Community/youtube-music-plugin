@@ -5,7 +5,8 @@
 	"scripts": {
 		"build": "rimraf dist && tsc",
 		"dev": "nodemon -w src -e ts -x \"npm run build || exit 1\"",
-		"test:audio": "tsx test/audio.test.ts"
+		"test:audio": "tsx test/audio.test.ts",
+		"test:metadata": "tsx test/metadata.test.ts"
 	},
 	"type": "module",
 	"devDependencies": {

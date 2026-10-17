@@ -1,4 +1,4 @@
-import Innertube, { Parser, YTNodes } from "youtubei.js";
+import Innertube, { Parser, YTNodes, YTMusic } from "youtubei.js";
 import { PersistentCache } from "./persistent-cache.js";
 import {
 	AlbumMetadata,
@@ -10,7 +10,9 @@ import {
 } from "@pipe-bomb/plugin-sdk";
 import {
 	deserializeAllThumbnails,
+	extractAudioPlaylistId,
 	listItemToTrack,
+	parseReleaseDate,
 	serializeThumbnailAttribute,
 	toAlbum,
 	toArtist,
@@ -46,16 +48,98 @@ export class YTMusicCache {
 				const info = await this.innertube.music
 					.getUpNext(videoId, false)
 					.then((panel_1) => panel_1.contents?.[0]);
+				let track: EphemeralTrack | null = null;
+				let albumId: string | null = null;
 				if (info && info.is(YTNodes.PlaylistPanelVideo)) {
-					const track = upNextToEphemeralTrack(info, videoId);
-					return { id: videoId, track, albumId: info.album?.id ?? null };
+					track = upNextToEphemeralTrack(info, videoId);
+					albumId = info.album?.id ?? null;
 				}
-				return { id: videoId, track: null, albumId: null };
+				if (track) {
+					await this.enrichTrackMetadata(track, videoId);
+				}
+				return { id: videoId, track, albumId };
 			},
 			{
 				ttl: MONTH,
 			},
 		);
+	}
+
+	private async enrichTrackMetadata(track: EphemeralTrack, videoId: string) {
+		if (!track.attributes) {
+			return;
+		}
+		try {
+			const info = await this.innertube.getBasicInfo(videoId);
+			const basicInfo = info.basic_info;
+			if (typeof basicInfo?.view_count == "number") {
+				track.attributes.push({
+					key: "views",
+					value: basicInfo.view_count,
+				});
+			}
+			const description = basicInfo?.short_description?.trim();
+			if (description) {
+				track.attributes.push({
+					key: "description",
+					value: description,
+				});
+				const releaseDate = parseReleaseDate(description);
+				if (releaseDate) {
+					track.attributes.push({
+						key: "release_date",
+						value: releaseDate,
+					});
+				}
+			}
+		} catch {}
+	}
+
+	async getLyrics(videoId: string): Promise<string | null> {
+		const cached = await this.cache.get<string>(`lyrics:${videoId}`);
+		if (cached !== null) {
+			return cached || null;
+		}
+		let lyrics = "";
+		try {
+			const shelf = await this.innertube.music.getLyrics(videoId);
+			lyrics = shelf?.description?.toString()?.trim() ?? "";
+		} catch {}
+		await this.cache.set(`lyrics:${videoId}`, lyrics);
+		return lyrics || null;
+	}
+
+	private async deriveReleaseDate(
+		tracks: EphemeralTrack[],
+	): Promise<string | null> {
+		const ids = tracks.map((track) => track.id).filter((id) => !!id);
+		if (!ids.length) {
+			return null;
+		}
+
+		const entries = await this.cache.getMany<{
+			track: EphemeralTrack | null;
+		}>(ids.map((id) => `song-upnext:${id}`));
+
+		const dates: string[] = [];
+		for (const entry of entries) {
+			const date = entry?.track?.attributes?.find(
+				(attribute) => attribute.key == "release_date",
+			)?.value;
+			if (typeof date == "string") {
+				dates.push(date);
+			}
+		}
+		if (dates.length) {
+			return dates.sort()[0] ?? null;
+		}
+
+		try {
+			const info = await this.innertube.getBasicInfo(ids[0]!);
+			return parseReleaseDate(info.basic_info?.short_description);
+		} catch {
+			return null;
+		}
 	}
 
 	async getTrack(videoId: string) {
@@ -122,7 +206,16 @@ export class YTMusicCache {
 			async () => {
 				const album = await this.innertube.music.getAlbum(albumId);
 				const { artists, attributes, tracks } = toAlbum(album);
-				await this.cache.set(`album-tracks:${albumId}`, tracks);
+				const resolvedTracks = await this.resolveAlbumTracks(album, tracks);
+				await this.cache.set(`album-tracks:${albumId}`, resolvedTracks);
+
+				const releaseDate = await this.deriveReleaseDate(resolvedTracks);
+				if (releaseDate) {
+					attributes.push({
+						key: "release_date",
+						value: releaseDate,
+					});
+				}
 
 				return {
 					artists,
@@ -141,14 +234,57 @@ export class YTMusicCache {
 			async () => {
 				const album = await this.innertube.music.getAlbum(albumId);
 				const { artists, attributes, tracks } = toAlbum(album);
+				const resolvedTracks = await this.resolveAlbumTracks(album, tracks);
+
+				const releaseDate = await this.deriveReleaseDate(resolvedTracks);
+				if (releaseDate) {
+					attributes.push({
+						key: "release_date",
+						value: releaseDate,
+					});
+				}
+
 				await this.cache.set(`album:${albumId}`, { artists, attributes });
 
-				return tracks;
+				return resolvedTracks;
 			},
 			{
 				ttl: WEEK,
 			},
 		);
+	}
+
+	private async resolveAlbumTracks(
+		album: YTMusic.Album,
+		fallbackTracks: EphemeralTrack[],
+	): Promise<EphemeralTrack[]> {
+		const audioPlaylistId = extractAudioPlaylistId(album.url);
+		if (!audioPlaylistId) {
+			return fallbackTracks;
+		}
+		let tracks: EphemeralTrack[];
+		try {
+			tracks = await this.fetchPlaylistTracks(audioPlaylistId);
+		} catch {
+			return fallbackTracks;
+		}
+		if (!tracks.length) {
+			return fallbackTracks;
+		}
+
+		tracks.forEach((track, index) => {
+			if (
+				track.attributes &&
+				!track.attributes.some((attribute) => attribute.key == "track_number")
+			) {
+				track.attributes.push({
+					key: "track_number",
+					value: index + 1,
+				});
+			}
+		});
+
+		return tracks;
 	}
 
 	async getPlaylistMetadata(playlistId: string) {
@@ -184,38 +320,42 @@ export class YTMusicCache {
 		);
 	}
 
+	private async fetchPlaylistTracks(
+		playlistId: string,
+	): Promise<EphemeralTrack[]> {
+		let playlist = await this.innertube.music.getPlaylist(playlistId);
+		const tracks: EphemeralTrack[] = [];
+
+		while (playlist) {
+			const items = playlist.contents ?? [];
+			for (const item of items) {
+				if (item.is(YTNodes.ContinuationItem)) {
+					continue;
+				}
+
+				if (item.item_type != "song" && item.item_type != "video") {
+					continue;
+				}
+
+				const track = listItemToTrack(item);
+				if (track) {
+					tracks.push(track);
+				}
+			}
+
+			if (!playlist.has_continuation) {
+				break;
+			}
+			playlist = await playlist.getContinuation();
+		}
+
+		return tracks;
+	}
+
 	async getPlaylistTracks(playlistId: string) {
 		return this.cache.getOrFind<EphemeralTrack[]>(
 			`playlist-tracks:${playlistId}`,
-			async () => {
-				let playlist = await this.innertube.music.getPlaylist(playlistId);
-				const tracks: EphemeralTrack[] = [];
-
-				while (playlist) {
-					const items = playlist.contents ?? [];
-					for (const item of items) {
-						if (item.is(YTNodes.ContinuationItem)) {
-							continue;
-						}
-
-						if (item.item_type != "song" && item.item_type != "video") {
-							continue;
-						}
-
-						const track = listItemToTrack(item);
-						if (track) {
-							tracks.push(track);
-						}
-					}
-
-					if (!playlist.has_continuation) {
-						break;
-					}
-					playlist = await playlist.getContinuation();
-				}
-
-				return tracks;
-			},
+			() => this.fetchPlaylistTracks(playlistId),
 			{
 				ttl: DAY,
 			},

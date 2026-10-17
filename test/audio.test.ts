@@ -4,6 +4,7 @@ import { YTMusicConfigManager } from "@/yt-music.settings.js";
 import path from "path";
 import Innertube, { UniversalCache } from "youtubei.js";
 import { Readable } from "stream";
+import { exec } from "node:child_process";
 import { resolveYtDlp } from "@/ytdlp.js";
 
 if (process.argv.length < 3) {
@@ -25,6 +26,34 @@ async function consumePart(part: Buffer | Readable): Promise<number> {
 		});
 		part.on("end", () => resolve(bytes));
 		part.on("error", reject);
+	});
+}
+
+// Read up to `limit` bytes from a stream, then stop (and destroy it).
+async function readStreamLimited(stream: Readable, limit: number): Promise<number> {
+	return new Promise((resolve, reject) => {
+		let bytes = 0;
+		const onData = (chunk: Buffer) => {
+			bytes += chunk.length;
+			if (bytes >= limit) {
+				cleanup();
+				resolve(bytes);
+			}
+		};
+		const cleanup = () => {
+			stream.off("data", onData);
+			stream.off("end", onEnd);
+			stream.off("error", onError);
+			stream.destroy();
+		};
+		const onEnd = () => resolve(bytes);
+		const onError = (err: Error) => {
+			cleanup();
+			reject(err);
+		};
+		stream.on("data", onData);
+		stream.on("end", onEnd);
+		stream.on("error", onError);
 	});
 }
 
@@ -97,7 +126,23 @@ async function consumePart(part: Buffer | Readable): Promise<number> {
 			`  Got ${bytes2} bytes, expected ${partSize} — ${ok2 ? "PASS" : "FAIL"}`,
 		);
 
-		if (!ok1 || !ok2) {
+		console.log(`\nTest 3: getStream first ${partSize} bytes (yt-dlp pipe)`);
+		const stream = await audioProducer.getStream();
+		const bytes3 = await readStreamLimited(stream, partSize);
+		const ok3 = bytes3 >= partSize;
+		console.log(
+			`  Got ${bytes3} bytes, expected >= ${partSize} — ${ok3 ? "PASS" : "FAIL"}`,
+		);
+
+		// getStream() spawns a yt-dlp child and pipes its stdout into a
+		// PassThrough. Destroying the PassThrough does not terminate the child,
+		// and a live child keeps Node's event loop alive — so kill it explicitly.
+		// (Bracket pattern avoids matching this shell's own command line.)
+		await new Promise<void>((resolve) => {
+			exec(`pkill -f "yt-[d]lp" || true`, () => resolve());
+		});
+
+		if (!ok1 || !ok2 || !ok3) {
 			console.error("\nSome tests FAILED");
 			process.exit(1);
 		}

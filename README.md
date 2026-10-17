@@ -20,10 +20,10 @@ npm run build
 
 ### Track
 
-| Identity                 | Dependencies                 | Link   | Description                                        |
-| :----------------------- | ---------------------------- | ------ | -------------------------------------------------- |
-| `youtube_music_track_id` |                              |        | The Video ID of the track.                         |
-| `youtube_channel_id`     | `soundcloud_track_id` (hard) | Artist | The YouTube channel IDs associated with the track. |
+| Identity                 | Dependencies                    | Link   | Description                                        |
+| :----------------------- | ------------------------------- | ------ | -------------------------------------------------- |
+| `youtube_music_track_id` |                                 |        | The Video ID of the track.                         |
+| `youtube_channel_id`     | `youtube_music_track_id` (hard) | Artist | The YouTube channel IDs associated with the track. |
 
 ### Artist
 
@@ -35,28 +35,45 @@ npm run build
 
 ### Track
 
-| Attribute  | Type             | Multiple | Description                           |
-| :--------- | ---------------- | -------- | ------------------------------------- |
-| `title`    | `string`         | ❌       | The title of the track.               |
-| `duration` | `decimal`        | ❌       | The duration of the track in seconds. |
-| `front`    | `buffer` (image) | ❌       | The cover art of the track.           |
-| `year`     | `integer`        | ❌       | The year that the track was released. |
+| Attribute      | Type             | Multiple | Description                                                        |
+| :------------- | ---------------- | -------- | ------------------------------------------------------------------ |
+| `title`        | `string`         | ❌       | The title of the track.                                            |
+| `duration`     | `decimal`        | ❌       | The duration of the track in seconds.                              |
+| `front`        | `buffer` (image) | ❌       | The cover art of the track.                                        |
+| `year`         | `integer`        | ❌       | The year that the track was released.                              |
+| `album`        | `string`         | ❌       | The name of the album the track belongs to.                        |
+| `artist`       | `string`         | ✅       | The names of the artists (leading ` - Topic` suffixes removed).    |
+| `track_number` | `integer`        | ❌       | The position of the track within its album.                        |
+| `disc_number`  | `integer`        | ❌       | The disc number. Always `1` (YouTube Music does not expose discs). |
+| `explicit`     | `boolean`        | ❌       | Whether the track is marked explicit.                              |
+| `lyrics`       | `string`         | ❌       | The plain-text lyrics, when available.                             |
+| `views`        | `integer`        | ❌       | The view count of the track.                                       |
+| `description`  | `string`         | ❌       | The track's description.                                           |
+| `release_date` | `string`         | ❌       | The release date as `YYYY-MM-DD`, when available.                  |
 
 ### Artist
 
-| Attribute    | Type             | Multiple | Description                                     |
-| :----------- | ---------------- | -------- | ----------------------------------------------- |
-| `name`       | `string`         | ❌       | The name of the artist.                         |
-| `thumb`      | `buffer` (image) | ❌       | The profile picture of the channel.             |
-| `background` | `buffer` (image) | ❌       | The background banner of the channel's profile. |
+| Attribute     | Type             | Multiple | Description                                     |
+| :------------ | ---------------- | -------- | ----------------------------------------------- |
+| `name`        | `string`         | ❌       | The name of the artist.                         |
+| `thumb`       | `buffer` (image) | ❌       | The profile picture of the channel.             |
+| `background`  | `buffer` (image) | ❌       | The background banner of the channel's profile. |
+| `description` | `string`         | ❌       | The artist's channel description/bio.           |
 
 ### Album
 
-| Attribute | Type             | Multiple | Description                           |
-| :-------- | ---------------- | -------- | ------------------------------------- |
-| `title`   | `string`         | ❌       | The title of the album.               |
-| `front`   | `buffer` (image) | ❌       | The cover art of the album.           |
-| `year`    | `integer`        | ❌       | The year that the album was released. |
+| Attribute      | Type             | Multiple | Description                                              |
+| :------------- | ---------------- | -------- | -------------------------------------------------------- |
+| `title`        | `string`         | ❌       | The title of the album.                                  |
+| `front`        | `buffer` (image) | ❌       | The cover art of the album.                              |
+| `year`         | `integer`        | ❌       | The year that the album was released.                    |
+| `artist`       | `string`         | ✅       | The names of the artists.                                |
+| `release_type` | `string`         | ✅       | The release type (`Album`, `Single`, `EP`, `LP`, ...).   |
+| `track_count`  | `integer`        | ❌       | The number of tracks on the album.                       |
+| `duration`     | `decimal`        | ❌       | The total duration of the album in seconds.              |
+| `description`  | `string`         | ❌       | The album description.                                   |
+| `explicit`     | `boolean`        | ❌       | Whether the album is marked explicit.                    |
+| `release_date` | `string`         | ❌       | The release date as `YYYY-MM-DD`, when available.        |
 
 ## Contributing
 
