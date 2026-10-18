@@ -186,6 +186,11 @@ export class YTMusicAttributeSource implements AttributeSource {
 				type: "string",
 				supportsMultiple: false,
 			},
+			{
+				key: "releaseradar_exclude",
+				type: "boolean",
+				supportsMultiple: false,
+			},
 		]);
 	}
 

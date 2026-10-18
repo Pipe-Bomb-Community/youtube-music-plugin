@@ -30,5 +30,6 @@
 	"plugin.youtube-music.attribute.album.youtube-music.duration.name": "Duration",
 	"plugin.youtube-music.attribute.album.youtube-music.description.name": "Description",
 	"plugin.youtube-music.attribute.album.youtube-music.explicit.name": "Explicit",
-	"plugin.youtube-music.attribute.album.youtube-music.release_date.name": "Release date"
+	"plugin.youtube-music.attribute.album.youtube-music.release_date.name": "Release date",
+	"plugin.youtube-music.attribute.album.youtube-music.releaseradar_exclude.name": "Exclude from Release Radar"
 }

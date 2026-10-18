@@ -224,7 +224,11 @@ export class YTMusicCache {
 			id: string;
 			track: EphemeralTrack | null;
 			albumId: string | null;
-		}>(Array.from(indexMap.keys()).map((trackId) => `song-upnext:${CACHE_VERSION}:${trackId}`));
+		}>(
+			Array.from(indexMap.keys()).map(
+				(trackId) => `song-upnext:${CACHE_VERSION}:${trackId}`,
+			),
+		);
 		for (const cacheTrack of cacheTracks) {
 			if (cacheTrack) {
 				const indexes = indexMap.get(cacheTrack.id);
@@ -274,7 +278,10 @@ export class YTMusicCache {
 					this.stampTrackReleaseDate(resolvedTracks, releaseDate);
 				}
 
-				await this.cache.set(`album-tracks:${CACHE_VERSION}:${albumId}`, resolvedTracks);
+				await this.cache.set(
+					`album-tracks:${CACHE_VERSION}:${albumId}`,
+					resolvedTracks,
+				);
 
 				return {
 					artists,
@@ -304,7 +311,10 @@ export class YTMusicCache {
 					this.stampTrackReleaseDate(resolvedTracks, releaseDate);
 				}
 
-				await this.cache.set(`album:${CACHE_VERSION}:${albumId}`, { artists, attributes });
+				await this.cache.set(`album:${CACHE_VERSION}:${albumId}`, {
+					artists,
+					attributes,
+				});
 
 				return resolvedTracks;
 			},
@@ -347,12 +357,12 @@ export class YTMusicCache {
 		return tracks;
 	}
 
-	async getPlaylistMetadata(playlistId: string) {
+	async getPlaylistMetadata(playlistId: string): Promise<AlbumMetadata> {
 		if (!playlistId.startsWith("VL")) {
 			playlistId = `VL${playlistId}`;
 		}
 
-		return this.cache.getOrFind<AlbumMetadata>(
+		const { artists, attributes } = await this.cache.getOrFind<AlbumMetadata>(
 			`playlist:${playlistId}`,
 			async () => {
 				const result = await this.innertube.actions.execute("/browse", {
@@ -378,6 +388,16 @@ export class YTMusicCache {
 				ttl: HOUR,
 			},
 		);
+		return {
+			artists,
+			attributes: [
+				...(attributes ?? []),
+				{
+					key: "releaseradar_exclude",
+					value: true,
+				},
+			],
+		};
 	}
 
 	private async fetchPlaylistTracks(
