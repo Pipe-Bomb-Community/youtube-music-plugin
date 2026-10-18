@@ -21,6 +21,176 @@ export function compare<T extends string | number>(a: T, b: T) {
 	return 0;
 }
 
+/**
+ * Extract a 4-digit year from free text such as an album subtitle
+ * ("Album • 2020"). Returns the last match, or null when absent.
+ */
+export function extractYear(text: string | undefined | null): number | null {
+	if (!text) {
+		return null;
+	}
+	const matches = text.match(/(19|20)\d{2}/g);
+	if (!matches || matches.length === 0) {
+		return null;
+	}
+	const year = parseInt(matches[matches.length - 1]!, 10);
+	return Number.isNaN(year) ? null : year;
+}
+
+export function cleanArtistName(
+	name: string | undefined | null,
+): string | null {
+	if (!name) {
+		return null;
+	}
+	const trimmed = name.trim();
+	if (!trimmed) {
+		return null;
+	}
+	const topicSuffix = " - topic";
+	if (trimmed.toLowerCase().endsWith(topicSuffix)) {
+		const stripped = trimmed.slice(0, -topicSuffix.length).trim();
+		if (stripped) {
+			return stripped;
+		}
+	}
+	return trimmed;
+}
+
+export function normalizeIsoDate(
+	value: string | undefined | null,
+): string | null {
+	if (!value) {
+		return null;
+	}
+	const match = value.match(/(\d{4})-(\d{2})-(\d{2})/);
+	if (!match) {
+		return null;
+	}
+	const date = `${match[1]}-${match[2]}-${match[3]}`;
+	return Number.isNaN(Date.parse(date)) ? null : date;
+}
+
+export function parseReleaseDate(
+	description: string | undefined | null,
+): string | null {
+	if (!description) {
+		return null;
+	}
+	const match = description.match(/Released on:\s*(\d{4}-\d{2}-\d{2})/i);
+	return normalizeIsoDate(match?.[1]);
+}
+
+export function parseDurationText(
+	value: string | undefined | null,
+): number | null {
+	if (!value) {
+		return null;
+	}
+	const match = value.match(/^(?:(\d+):)?(\d+):(\d+)$/);
+	if (!match) {
+		return null;
+	}
+	const hours = match[1] ? parseInt(match[1], 10) : 0;
+	const minutes = parseInt(match[2]!, 10);
+	const seconds = parseInt(match[3]!, 10);
+	if ([hours, minutes, seconds].some((part) => Number.isNaN(part))) {
+		return null;
+	}
+	return hours * 3600 + minutes * 60 + seconds;
+}
+
+export function isExplicit(badges: unknown): boolean {
+	if (!Array.isArray(badges)) {
+		return false;
+	}
+	return badges.some((badge: any) => {
+		const iconType: unknown = badge?.icon_type;
+		if (
+			typeof iconType == "string" &&
+			iconType.toUpperCase().includes("EXPLICIT")
+		) {
+			return true;
+		}
+		const label: unknown = badge?.label;
+		return typeof label == "string" && label.toLowerCase().includes("explicit");
+	});
+}
+
+const RELEASE_TYPES = [
+	"album",
+	"single",
+	"ep",
+	"lp",
+	"compilation",
+	"soundtrack",
+	"live",
+];
+
+export function extractReleaseType(
+	text: string | undefined | null,
+): string | null {
+	if (!text) {
+		return null;
+	}
+	for (const part of text.split(/[•·|]/)) {
+		const token = part.trim().toLowerCase();
+		if (!RELEASE_TYPES.includes(token)) {
+			continue;
+		}
+		if (token == "ep" || token == "lp") {
+			return token.toUpperCase();
+		}
+		return token.charAt(0).toUpperCase() + token.slice(1);
+	}
+	return null;
+}
+
+export function extractTrackCount(
+	text: string | undefined | null,
+): number | null {
+	if (!text) {
+		return null;
+	}
+	const match = text.match(/(\d[\d,]*)\s*songs?/i);
+	if (!match) {
+		return null;
+	}
+	const count = parseInt(match[1]!.replace(/,/g, ""), 10);
+	return Number.isNaN(count) ? null : count;
+}
+
+export function extractAudioPlaylistId(
+	url: string | undefined | null,
+): string | null {
+	if (!url) {
+		return null;
+	}
+	const match =
+		url.match(/[?&]list=([A-Za-z0-9_-]+)/) ??
+		url.match(/(OLAK5uy_[A-Za-z0-9_-]+)/);
+	return match?.[1] ?? null;
+}
+
+export function mostCommonDate(dates: string[]): string | null {
+	const counts = new Map<string, number>();
+	for (const date of dates) {
+		counts.set(date, (counts.get(date) ?? 0) + 1);
+	}
+	let best: string | null = null;
+	let bestCount = 0;
+	for (const [date, count] of counts) {
+		if (
+			count > bestCount ||
+			(count === bestCount && best !== null && date > best)
+		) {
+			best = date;
+			bestCount = count;
+		}
+	}
+	return best;
+}
+
 export function serializeThumbnailAttribute(
 	thumbnails: YTMThumbnail[],
 ): BufferAttributeValue {
@@ -56,8 +226,9 @@ export function deserializeThumbnailAttribute(
 	};
 }
 
-export function deserializeAllThumbnails(rootNode: any) {
+export function deserializeAllThumbnails(rootNode: any): boolean {
 	const toTraverse: any[] = [rootNode];
+	let corrupt = false;
 
 	while (toTraverse.length) {
 		const current = toTraverse.shift();
@@ -78,15 +249,20 @@ export function deserializeAllThumbnails(rootNode: any) {
 						const attributes: AttributeValue[] = current.attributes;
 
 						for (const attribute of attributes) {
-							if (
-								attribute?.value &&
-								typeof attribute.value === "object" &&
-								(attribute.value as any).type === "serialized-thumbnails"
-							) {
-								// Direct mutation of the object reference
-								attribute.value = deserializeThumbnailAttribute(
-									attribute.value,
-								);
+							if (attribute?.value && typeof attribute.value === "object") {
+								if ((attribute.value as any).type === "serialized-thumbnails") {
+									// Direct mutation of the object reference
+									attribute.value = deserializeThumbnailAttribute(
+										attribute.value,
+									);
+								} else if (
+									!("buffer" in attribute.value) ||
+									typeof (attribute.value as any).extension != "string"
+								) {
+									// A buffer attribute persisted without its callable
+									// `buffer` (e.g. a stale cache entry) is unusable.
+									corrupt = true;
+								}
 							}
 						}
 					} else {
@@ -96,6 +272,8 @@ export function deserializeAllThumbnails(rootNode: any) {
 			}
 		}
 	}
+
+	return corrupt;
 }
 
 export function sortThumbnails(thumbnails: YTMThumbnail[]) {
@@ -144,11 +322,26 @@ export function toAlbumArtists(
 					attributes: [
 						{
 							key: "name",
-							value: run.text,
+							value: cleanArtistName(run.text) ?? run.text,
 						},
 					],
 				});
 			}
+		}
+	} else if (header?.is(YTNodes.MusicDetailHeader)) {
+		const author = header.author;
+		if (author?.channel_id && author.name) {
+			artists.push({
+				pluginId: "youtube-music",
+				identityId: "youtube_channel_id",
+				identity: author.channel_id,
+				attributes: [
+					{
+						key: "name",
+						value: cleanArtistName(author.name) ?? author.name,
+					},
+				],
+			});
 		}
 	}
 
@@ -196,10 +389,42 @@ export function listItemToTrack(
 			value: item.duration.seconds,
 		});
 	}
+	if (item.album?.name) {
+		attributes.push({
+			key: "album",
+			value: item.album.name,
+		});
+	}
+	if (item.index?.text) {
+		const trackNumber = parseInt(item.index.text, 10);
+		if (!Number.isNaN(trackNumber)) {
+			attributes.push({
+				key: "track_number",
+				value: trackNumber,
+			});
+		}
+	}
+	attributes.push({
+		key: "disc_number",
+		value: 1,
+	});
+	if (isExplicit(item.badges)) {
+		attributes.push({
+			key: "explicit",
+			value: true,
+		});
+	}
 
 	const artists: IdentifiableTrackArtistMetadata[] = [];
 	if (item.artists) {
 		for (const resultArtist of item.artists) {
+			const name = cleanArtistName(resultArtist.name);
+			if (name) {
+				attributes.push({
+					key: "artist",
+					value: name,
+				});
+			}
 			if (resultArtist.channel_id) {
 				artists.push({
 					pluginId: "youtube-music",
@@ -208,7 +433,7 @@ export function listItemToTrack(
 					attributes: [
 						{
 							key: "name",
-							value: resultArtist.name,
+							value: name ?? resultArtist.name,
 						},
 					],
 				});
@@ -243,12 +468,101 @@ export function toAlbum(album: YTMusic.Album) {
 
 		artists.push(...toAlbumArtists(header));
 
+		for (const artist of artists) {
+			const name = artist.attributes?.find((a) => a.key == "name")?.value;
+			if (typeof name == "string") {
+				attributes.push({
+					key: "artist",
+					value: name,
+				});
+			}
+		}
+
 		if (header.is(YTNodes.MusicResponsiveHeader)) {
 			if (header.thumbnail?.contents.length) {
 				thumbnail = serializeThumbnailAttribute(header.thumbnail.contents);
 				attributes.push({
 					key: "front",
 					value: thumbnail,
+				});
+			}
+			const year = extractYear(header.subtitle?.text);
+			if (year !== null) {
+				attributes.push({
+					key: "year",
+					value: year,
+				});
+			}
+			const releaseType = extractReleaseType(header.subtitle?.text);
+			if (releaseType) {
+				attributes.push({
+					key: "release_type",
+					value: releaseType,
+				});
+			}
+			const trackCount =
+				extractTrackCount(header.second_subtitle?.text) ??
+				extractTrackCount(header.subtitle?.text);
+			if (trackCount !== null) {
+				attributes.push({
+					key: "track_count",
+					value: trackCount,
+				});
+			}
+			if (header.description?.description?.text) {
+				attributes.push({
+					key: "description",
+					value: header.description.description.text,
+				});
+			}
+			if (isExplicit(header.subtitle_badge)) {
+				attributes.push({
+					key: "explicit",
+					value: true,
+				});
+			}
+		} else if (header.is(YTNodes.MusicDetailHeader)) {
+			if (header.thumbnails?.length) {
+				thumbnail = serializeThumbnailAttribute(
+					header.thumbnails as unknown as YTMThumbnail[],
+				);
+				attributes.push({
+					key: "front",
+					value: thumbnail,
+				});
+			}
+			const year = extractYear(header.year);
+			if (year !== null) {
+				attributes.push({
+					key: "year",
+					value: year,
+				});
+			}
+			const releaseType = extractReleaseType(header.subtitle?.text);
+			if (releaseType) {
+				attributes.push({
+					key: "release_type",
+					value: releaseType,
+				});
+			}
+			const trackCount =
+				extractTrackCount(header.song_count) ?? parseInt(header.song_count, 10);
+			if (!Number.isNaN(trackCount)) {
+				attributes.push({
+					key: "track_count",
+					value: trackCount,
+				});
+			}
+			if (header.description?.text) {
+				attributes.push({
+					key: "description",
+					value: header.description.text,
+				});
+			}
+			if (isExplicit(header.badges)) {
+				attributes.push({
+					key: "explicit",
+					value: true,
 				});
 			}
 		}
@@ -279,9 +593,39 @@ export function toAlbum(album: YTMusic.Album) {
 			if (!track.artists?.length) {
 				track.artists = artists;
 			}
+			if (
+				track.attributes &&
+				!track.attributes.some((attribute) => attribute.key == "artist")
+			) {
+				for (const artist of artists) {
+					const name = artist.attributes?.find((a) => a.key == "name")?.value;
+					if (typeof name == "string") {
+						track.attributes.push({
+							key: "artist",
+							value: name,
+						});
+					}
+				}
+			}
 
 			tracks.push(track);
 		}
+	}
+
+	let totalDuration = 0;
+	let hasDuration = false;
+	for (const track of tracks) {
+		const duration = track.attributes?.find((a) => a.key == "duration")?.value;
+		if (typeof duration == "number") {
+			totalDuration += duration;
+			hasDuration = true;
+		}
+	}
+	if (hasDuration) {
+		attributes.push({
+			key: "duration",
+			value: totalDuration,
+		});
 	}
 
 	return {
@@ -338,6 +682,22 @@ export function upNextToEphemeralTrack(
 			});
 		}
 	}
+	if (info.album?.name) {
+		attributes.push({
+			key: "album",
+			value: info.album.name,
+		});
+	}
+	attributes.push({
+		key: "disc_number",
+		value: 1,
+	});
+	if (isExplicit(info.badges)) {
+		attributes.push({
+			key: "explicit",
+			value: true,
+		});
+	}
 
 	const artists: IdentifiableTrackArtistMetadata[] = [];
 	if (info.artists) {
@@ -363,6 +723,14 @@ export function upNextToEphemeralTrack(
 				}
 			}
 
+			const name = cleanArtistName(artist.name);
+			if (name) {
+				attributes.push({
+					key: "artist",
+					value: name,
+				});
+			}
+
 			if (!artist.channel_id) {
 				continue;
 			}
@@ -375,7 +743,7 @@ export function upNextToEphemeralTrack(
 				attributes: [
 					{
 						key: "name",
-						value: artist.name,
+						value: name ?? artist.name,
 					},
 				],
 			});
@@ -420,6 +788,31 @@ export function twoColumnBrowseToPlaylistMetadata(
 						});
 					}
 
+					const year = extractYear(content.subtitle?.text);
+					if (year !== null) {
+						attributes.push({
+							key: "year",
+							value: year,
+						});
+					}
+
+					const trackCount =
+						extractTrackCount(content.second_subtitle?.text) ??
+						extractTrackCount(content.subtitle?.text);
+					if (trackCount !== null) {
+						attributes.push({
+							key: "track_count",
+							value: trackCount,
+						});
+					}
+
+					if (content.description?.description?.text) {
+						attributes.push({
+							key: "description",
+							value: content.description.description.text,
+						});
+					}
+
 					const rawHeader = (rawData as any).twoColumnBrowseResultsRenderer
 						?.tabs?.[tabIndex]?.tabRenderer?.content.sectionListRenderer
 						?.contents?.[tabContentIndex]?.musicResponsiveHeaderRenderer;
@@ -434,6 +827,11 @@ export function twoColumnBrowseToPlaylistMetadata(
 								?.onTap?.innertubeCommand?.browseEndpoint?.browseId;
 
 						if (userName && userId) {
+							const name = cleanArtistName(userName) ?? userName;
+							attributes.push({
+								key: "artist",
+								value: name,
+							});
 							artists.push({
 								pluginId: "youtube-music",
 								identityId: "youtube_channel_id",
@@ -441,7 +839,7 @@ export function twoColumnBrowseToPlaylistMetadata(
 								attributes: [
 									{
 										key: "name",
-										value: userName,
+										value: name,
 									},
 								],
 							});
@@ -476,10 +874,40 @@ export function twoRowItemToAlbum(
 		});
 	}
 
+	const year = extractYear(item.year);
+	if (year !== null) {
+		attributes.push({
+			key: "year",
+			value: year,
+		});
+	}
+
+	const releaseType = extractReleaseType(item.subtitle?.text);
+	if (releaseType) {
+		attributes.push({
+			key: "release_type",
+			value: releaseType,
+		});
+	}
+
+	if (isExplicit(item.badges)) {
+		attributes.push({
+			key: "explicit",
+			value: true,
+		});
+	}
+
 	const artists: IdentifiableTrackArtistMetadata[] = [];
 
 	if (item.artists?.length) {
 		for (const artist of item.artists) {
+			const name = cleanArtistName(artist.name);
+			if (name) {
+				attributes.push({
+					key: "artist",
+					value: name,
+				});
+			}
 			if (!artist.channel_id) continue;
 
 			artists.push({
@@ -489,7 +917,7 @@ export function twoRowItemToAlbum(
 				attributes: [
 					{
 						key: "name",
-						value: artist.name,
+						value: name ?? artist.name,
 					},
 				],
 			});
@@ -514,16 +942,23 @@ export function toArtist(response: IRawResponse) {
 			if (parsedNode.title) {
 				attributes.push({
 					key: "name",
-					value: parsedNode.title.toString(),
+					value:
+						cleanArtistName(parsedNode.title.toString()) ??
+						parsedNode.title.toString(),
 				});
 			}
-		}
 
-		if (parsedNode.is(YTNodes.MusicImmersiveHeader)) {
 			if (parsedNode.thumbnail?.contents.length) {
 				attributes.push({
 					key: "background",
 					value: serializeThumbnailAttribute(parsedNode.thumbnail.contents),
+				});
+			}
+
+			if (parsedNode.description?.text) {
+				attributes.push({
+					key: "description",
+					value: parsedNode.description.text,
 				});
 			}
 		}
@@ -543,7 +978,8 @@ export function toUser(response: IRawResponse) {
 			if (parsedNode.title.text) {
 				attributes.push({
 					key: "name",
-					value: parsedNode.title.text,
+					value:
+						cleanArtistName(parsedNode.title.text) ?? parsedNode.title.text,
 				});
 			}
 
@@ -590,7 +1026,7 @@ export function toUser(response: IRawResponse) {
 															attributes: [
 																{
 																	key: "name",
-																	value: run.text,
+																	value: cleanArtistName(run.text) ?? run.text,
 																},
 															],
 														},
@@ -632,8 +1068,21 @@ export function listItemToAlbum(
 		});
 	}
 
+	const year = extractYear(item.year);
+	if (year !== null) {
+		attributes.push({
+			key: "year",
+			value: year,
+		});
+	}
+
 	const artists: IdentifiableTrackArtistMetadata[] = [];
 	if (item.author?.channel_id) {
+		const name = cleanArtistName(item.author.name) ?? item.author.name;
+		attributes.push({
+			key: "artist",
+			value: name,
+		});
 		artists.push({
 			pluginId: "youtube-music",
 			identityId: "youtube_channel_id",
@@ -641,7 +1090,7 @@ export function listItemToAlbum(
 			attributes: [
 				{
 					key: "name",
-					value: item.author.name,
+					value: name,
 				},
 			],
 		});
@@ -671,4 +1120,16 @@ export function getMimeType(format: YtDlpFormat): string {
 		default:
 			return "application/octet-stream";
 	}
+}
+
+export function formatNumber(number: number) {
+	return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+export function formatDateString(dateString: string) {
+	const [year, month, day] = dateString.split("-");
+	if (year === undefined || month === undefined || day === undefined) {
+		return dateString;
+	}
+	return `${day}/${month}/${year}`;
 }

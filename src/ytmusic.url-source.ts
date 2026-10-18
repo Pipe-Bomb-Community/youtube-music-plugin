@@ -34,10 +34,46 @@ export class YTMusicExternalUrlSource implements ExternalUrlSource {
 	}
 
 	getTrackUrls(helper: TrackExternalUrlHelper): ExternalUrl[] | null {
+		const track = helper.getIdentity("youtube_music_track_id");
+		if (track) {
+			return [
+				{
+					name: "YouTube Music",
+					url: `https://music.youtube.com/watch?v=${track.identity}`,
+					iconId: "logo",
+				},
+			];
+		}
+
 		return null;
 	}
 
 	getAlbumUrls(helper: AlbumExternalUrlHelper): ExternalUrl[] | null {
+		const album = helper.getIdentity("youtube_music_album_id");
+		if (album) {
+			return [
+				{
+					name: "YouTube Music",
+					url: `https://music.youtube.com/browse/${album.identity}`,
+					iconId: "logo",
+				},
+			];
+		}
+
+		const playlist = helper.getIdentity("youtube_music_playlist_id");
+		if (playlist) {
+			const id = playlist.identity.startsWith("VL")
+				? playlist.identity.substring(2)
+				: playlist.identity;
+			return [
+				{
+					name: "YouTube Music",
+					url: `https://music.youtube.com/playlist?list=${id}`,
+					iconId: "logo",
+				},
+			];
+		}
+
 		return null;
 	}
 }

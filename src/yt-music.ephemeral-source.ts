@@ -20,6 +20,7 @@ import Innertube, { YTNodes } from "youtubei.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
 import {
 	deserializeAllThumbnails,
+	cleanArtistName,
 	listItemToAlbum,
 	listItemToTrack,
 } from "./utils.js";
@@ -111,10 +112,12 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 				return;
 			}
 
+			const name = cleanArtistName(item.name) ?? item.name;
+
 			const attributes: AttributeValue[] = [
 				{
 					key: "name",
-					value: item.name,
+					value: name,
 				},
 			];
 
@@ -166,6 +169,11 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			const artists: IdentifiableTrackArtistMetadata[] = [];
 
 			if (item.author?.channel_id) {
+				const name = cleanArtistName(item.author.name) ?? item.author.name;
+				attributes.push({
+					key: "artist",
+					value: name,
+				});
 				artists.push({
 					pluginId: "youtube-music",
 					identityId: "youtube_channel_id",
@@ -173,7 +181,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 					attributes: [
 						{
 							key: "name",
-							value: item.author.name,
+							value: name,
 						},
 					],
 				});

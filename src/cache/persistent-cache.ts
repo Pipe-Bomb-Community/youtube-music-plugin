@@ -18,7 +18,11 @@ export class PersistentCache {
 	async get<T>(key: string): Promise<T | null> {
 		const value = await this.keyv.get(key);
 		if (typeof value == "object") {
-			deserializeAllThumbnails(value);
+			const corrupt = deserializeAllThumbnails(value);
+			if (corrupt) {
+				await this.keyv.delete(key).catch(() => {});
+				return null;
+			}
 		}
 		return value ?? null;
 	}
