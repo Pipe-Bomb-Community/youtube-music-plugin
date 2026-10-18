@@ -25,11 +25,16 @@ From `src/cache/ytmusic-cache.ts`:
 
 - Track metadata is YTM-native (`music.getUpNext`) for title/album/artists, then
   augmented with one WEB `getBasicInfo(videoId)` call for `views`, `description` and a
-  `release_date` parsed from the `Released on: YYYY-MM-DD` description line.
+  `release_date` (preferring the `Released on: YYYY-MM-DD` description line, else the
+  player microformat's `publish_date`/`upload_date`).
   (`getBasicInfo` is used instead of `getInfo` because it skips the watch-next payload
   that makes youtubei.js log parser mismatches.)
-- Album `release_date` is derived from the album's tracks: the earliest cached track
-  date, falling back to a single `getInfo` on the first track.
+- Album `release_date` is derived from its tracks: each track's own date is resolved
+  (description `Released on:`, else player-microformat upload date) and cached under
+  `track-date:<videoId>`; the album date is the **most common** track date, so a single
+  released years before the album does not drag the album date backwards. Each track is
+  stamped with its own date (tracks with none fall back to the album date). Up to
+  `RELEASE_DATE_SAMPLE` (30) tracks are sampled, `RELEASE_DATE_CONCURRENCY` (5) at a time.
 - `getLyrics` caches negative results as `""` so a track without lyrics is only fetched
   once.
 

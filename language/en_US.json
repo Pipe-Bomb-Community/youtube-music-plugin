@@ -1,4 +1,34 @@
 {
 	"plugin.youtube-music.name": "YouTube Music",
-	"task.plugin.youtube-music.update-yt-dlp.name": "Update YT-DLP binary"
+	"task.plugin.youtube-music.update-yt-dlp.name": "Update YT-DLP binary",
+
+	"plugin.youtube-music.attribute.track.youtube-music.title.name": "Title",
+	"plugin.youtube-music.attribute.track.youtube-music.duration.name": "Duration",
+	"plugin.youtube-music.attribute.track.youtube-music.front.name": "Front",
+	"plugin.youtube-music.attribute.track.youtube-music.year.name": "Year",
+	"plugin.youtube-music.attribute.track.youtube-music.album.name": "Album",
+	"plugin.youtube-music.attribute.track.youtube-music.artist.name": "Artist",
+	"plugin.youtube-music.attribute.track.youtube-music.track_number.name": "Track #",
+	"plugin.youtube-music.attribute.track.youtube-music.disc_number.name": "Disc #",
+	"plugin.youtube-music.attribute.track.youtube-music.explicit.name": "Explicit",
+	"plugin.youtube-music.attribute.track.youtube-music.lyrics.name": "Lyrics",
+	"plugin.youtube-music.attribute.track.youtube-music.views.name": "Views",
+	"plugin.youtube-music.attribute.track.youtube-music.description.name": "Description",
+	"plugin.youtube-music.attribute.track.youtube-music.release_date.name": "Release date",
+
+	"plugin.youtube-music.attribute.artist.youtube-music.name.name": "Name",
+	"plugin.youtube-music.attribute.artist.youtube-music.thumb.name": "Thumbnail",
+	"plugin.youtube-music.attribute.artist.youtube-music.background.name": "Background",
+	"plugin.youtube-music.attribute.artist.youtube-music.description.name": "Description",
+
+	"plugin.youtube-music.attribute.album.youtube-music.title.name": "Title",
+	"plugin.youtube-music.attribute.album.youtube-music.front.name": "Front",
+	"plugin.youtube-music.attribute.album.youtube-music.year.name": "Year",
+	"plugin.youtube-music.attribute.album.youtube-music.artist.name": "Artist",
+	"plugin.youtube-music.attribute.album.youtube-music.release_type.name": "Release type",
+	"plugin.youtube-music.attribute.album.youtube-music.track_count.name": "Track count",
+	"plugin.youtube-music.attribute.album.youtube-music.duration.name": "Duration",
+	"plugin.youtube-music.attribute.album.youtube-music.description.name": "Description",
+	"plugin.youtube-music.attribute.album.youtube-music.explicit.name": "Explicit",
+	"plugin.youtube-music.attribute.album.youtube-music.release_date.name": "Release date"
 }

@@ -37,7 +37,9 @@ export function extractYear(text: string | undefined | null): number | null {
 	return Number.isNaN(year) ? null : year;
 }
 
-export function cleanArtistName(name: string | undefined | null): string | null {
+export function cleanArtistName(
+	name: string | undefined | null,
+): string | null {
 	if (!name) {
 		return null;
 	}
@@ -55,7 +57,9 @@ export function cleanArtistName(name: string | undefined | null): string | null 
 	return trimmed;
 }
 
-export function normalizeIsoDate(value: string | undefined | null): string | null {
+export function normalizeIsoDate(
+	value: string | undefined | null,
+): string | null {
 	if (!value) {
 		return null;
 	}
@@ -77,7 +81,9 @@ export function parseReleaseDate(
 	return normalizeIsoDate(match?.[1]);
 }
 
-export function parseDurationText(value: string | undefined | null): number | null {
+export function parseDurationText(
+	value: string | undefined | null,
+): number | null {
 	if (!value) {
 		return null;
 	}
@@ -107,9 +113,7 @@ export function isExplicit(badges: unknown): boolean {
 			return true;
 		}
 		const label: unknown = badge?.label;
-		return (
-			typeof label == "string" && label.toLowerCase().includes("explicit")
-		);
+		return typeof label == "string" && label.toLowerCase().includes("explicit");
 	});
 }
 
@@ -166,6 +170,25 @@ export function extractAudioPlaylistId(
 		url.match(/[?&]list=([A-Za-z0-9_-]+)/) ??
 		url.match(/(OLAK5uy_[A-Za-z0-9_-]+)/);
 	return match?.[1] ?? null;
+}
+
+export function mostCommonDate(dates: string[]): string | null {
+	const counts = new Map<string, number>();
+	for (const date of dates) {
+		counts.set(date, (counts.get(date) ?? 0) + 1);
+	}
+	let best: string | null = null;
+	let bestCount = 0;
+	for (const [date, count] of counts) {
+		if (
+			count > bestCount ||
+			(count === bestCount && best !== null && date > best)
+		) {
+			best = date;
+			bestCount = count;
+		}
+	}
+	return best;
 }
 
 export function serializeThumbnailAttribute(
@@ -226,14 +249,8 @@ export function deserializeAllThumbnails(rootNode: any): boolean {
 						const attributes: AttributeValue[] = current.attributes;
 
 						for (const attribute of attributes) {
-							if (
-								attribute?.value &&
-								typeof attribute.value === "object"
-							) {
-								if (
-									(attribute.value as any).type ===
-									"serialized-thumbnails"
-								) {
+							if (attribute?.value && typeof attribute.value === "object") {
+								if ((attribute.value as any).type === "serialized-thumbnails") {
 									// Direct mutation of the object reference
 									attribute.value = deserializeThumbnailAttribute(
 										attribute.value,
@@ -529,8 +546,7 @@ export function toAlbum(album: YTMusic.Album) {
 				});
 			}
 			const trackCount =
-				extractTrackCount(header.song_count) ??
-				parseInt(header.song_count, 10);
+				extractTrackCount(header.song_count) ?? parseInt(header.song_count, 10);
 			if (!Number.isNaN(trackCount)) {
 				attributes.push({
 					key: "track_count",
@@ -582,8 +598,7 @@ export function toAlbum(album: YTMusic.Album) {
 				!track.attributes.some((attribute) => attribute.key == "artist")
 			) {
 				for (const artist of artists) {
-					const name = artist.attributes?.find((a) => a.key == "name")
-						?.value;
+					const name = artist.attributes?.find((a) => a.key == "name")?.value;
 					if (typeof name == "string") {
 						track.attributes.push({
 							key: "artist",
@@ -600,8 +615,7 @@ export function toAlbum(album: YTMusic.Album) {
 	let totalDuration = 0;
 	let hasDuration = false;
 	for (const track of tracks) {
-		const duration = track.attributes?.find((a) => a.key == "duration")
-			?.value;
+		const duration = track.attributes?.find((a) => a.key == "duration")?.value;
 		if (typeof duration == "number") {
 			totalDuration += duration;
 			hasDuration = true;
@@ -928,7 +942,9 @@ export function toArtist(response: IRawResponse) {
 			if (parsedNode.title) {
 				attributes.push({
 					key: "name",
-					value: cleanArtistName(parsedNode.title.toString()) ?? parsedNode.title.toString(),
+					value:
+						cleanArtistName(parsedNode.title.toString()) ??
+						parsedNode.title.toString(),
 				});
 			}
 
@@ -962,7 +978,8 @@ export function toUser(response: IRawResponse) {
 			if (parsedNode.title.text) {
 				attributes.push({
 					key: "name",
-					value: cleanArtistName(parsedNode.title.text) ?? parsedNode.title.text,
+					value:
+						cleanArtistName(parsedNode.title.text) ?? parsedNode.title.text,
 				});
 			}
 
@@ -1009,8 +1026,7 @@ export function toUser(response: IRawResponse) {
 															attributes: [
 																{
 																	key: "name",
-																	value:
-																		cleanArtistName(run.text) ?? run.text,
+																	value: cleanArtistName(run.text) ?? run.text,
 																},
 															],
 														},
@@ -1104,4 +1120,16 @@ export function getMimeType(format: YtDlpFormat): string {
 		default:
 			return "application/octet-stream";
 	}
+}
+
+export function formatNumber(number: number) {
+	return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+export function formatDateString(dateString: string) {
+	const [year, month, day] = dateString.split("-");
+	if (year === undefined || month === undefined || day === undefined) {
+		return dateString;
+	}
+	return `${day}/${month}/${year}`;
 }

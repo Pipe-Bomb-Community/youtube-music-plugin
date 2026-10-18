@@ -13,6 +13,7 @@ import {
 import Axios from "axios";
 import { YTMArtistStub, YTMThumbnail } from "./types.js";
 import { YTMusicCache } from "./cache/ytmusic-cache.js";
+import { formatDateString, formatNumber } from "./utils.js";
 
 function formatDuration(value: number): string {
 	let seconds = Math.floor(value);
@@ -83,6 +84,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 				key: "explicit",
 				type: "boolean",
 				supportsMultiple: false,
+				formatter: (explicit) => (explicit ? "E" : ""),
 			},
 			{
 				key: "lyrics",
@@ -93,6 +95,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 				key: "views",
 				type: "integer",
 				supportsMultiple: false,
+				formatter: formatNumber,
 			},
 			{
 				key: "description",
@@ -103,6 +106,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 				key: "release_date",
 				type: "string",
 				supportsMultiple: false,
+				formatter: formatDateString,
 			},
 		]);
 

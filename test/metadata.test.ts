@@ -2,7 +2,12 @@ import path from "path";
 import fs from "fs";
 import Innertube, { UniversalCache, YTNodes } from "youtubei.js";
 import { YTMusicCache } from "@/cache/ytmusic-cache.js";
-import { cleanArtistName, deserializeAllThumbnails, listItemToAlbum } from "@/utils.js";
+import {
+	cleanArtistName,
+	deserializeAllThumbnails,
+	listItemToAlbum,
+	mostCommonDate,
+} from "@/utils.js";
 import { EphemeralTrack } from "@pipe-bomb/plugin-sdk";
 
 /**
@@ -308,6 +313,48 @@ async function main() {
 		deserializeAllThumbnails(serializedNode) === false,
 		"accepts and converts a serialized thumbnail marker",
 	);
+
+	console.log("\n[16] Album release_date falls back to the video publish date (SOMA)");
+	const somaId = "MPREb_Zw3AloBrysn";
+	const somaMeta = await cache.getAlbumMetadata(somaId);
+	const somaDate = attributeValue({ attributes: somaMeta.attributes }, "release_date");
+	assert(
+		typeof somaDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(somaDate),
+		`SOMA album release_date present (${somaDate})`,
+	);
+	const somaTracks = await cache.getAlbumTracks(somaId);
+	assert(somaTracks.length > 0, `SOMA has ${somaTracks.length} tracks`);
+	assert(
+		somaTracks.every(
+			(t) =>
+				typeof attributeValue(t, "release_date") === "string" &&
+				/^\d{4}-\d{2}-\d{2}$/.test(String(attributeValue(t, "release_date"))),
+		),
+		"every SOMA track has a release_date",
+	);
+	if (somaTracks[0]) {
+		const standalone = await cache.getTrack(somaTracks[0].id);
+		assert(
+			typeof attributeValue(standalone, "release_date") === "string",
+			`standalone SOMA track has release_date (${attributeValue(standalone, "release_date")})`,
+		);
+	}
+
+	console.log("\n[17] mostCommonDate ignores an older single outlier");
+	assert(
+		mostCommonDate([
+			"2019-11-29",
+			"2020-03-20",
+			"2020-03-20",
+			"2020-03-20",
+		]) === "2020-03-20",
+		"picks the album date over an earlier single",
+	);
+	assert(
+		mostCommonDate(["2019-11-29", "2020-03-20"]) === "2020-03-20",
+		"breaks ties toward the later date",
+	);
+	assert(mostCommonDate([]) === null, "returns null for no dates");
 
 	console.log(`\n==== ${passed} passed, ${failed} failed ====`);
 
