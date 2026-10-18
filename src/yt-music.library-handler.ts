@@ -71,7 +71,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			if (this.activeProducerCreations < this.config.getConcurrentProducers()) {
 				resolve();
 			} else {
-				console.log("Waiting for DLP session to open up");
+				// console.log("Waiting for DLP session to open up");
 				this.producerCreationQueue.push(resolve);
 			}
 		});
@@ -80,7 +80,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		let completed = false;
 		return () => {
 			if (!completed) {
-				console.log("DLP Session finished!");
+				// console.log("DLP Session finished!");
 				completed = true;
 				setTimeout(() => {
 					this.activeProducerCreations--;
@@ -100,7 +100,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		videoId: string,
 	): Promise<StreamAudioProducer> {
 		try {
-			console.log(format);
+			// console.log(format);
 			const mimeType = getMimeType(format);
 			const size = format.filesize;
 			if (!size || isNaN(size)) {
@@ -196,7 +196,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					);
 
 					child.stderr.on("data", (chunk: Buffer) => {
-						console.log(`[yt-dlp] ${chunk.toString().trim()}`);
+						// console.log(`[yt-dlp] ${chunk.toString().trim()}`);
 					});
 
 					child.on("close", (code) => {
@@ -226,9 +226,9 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 								bytesSinceLast / (duration / 1000) / (1024 * 1024);
 							const totalMB = totalBytes / (1024 * 1024);
 
-							console.log(
-								`[Download Progress] Speed: ${speedMBps.toFixed(2)} MB/s | Total Downloaded: ${totalMB.toFixed(2)} MB`,
-							);
+							// console.log(
+							// 	`[Download Progress] Speed: ${speedMBps.toFixed(2)} MB/s | Total Downloaded: ${totalMB.toFixed(2)} MB`,
+							// );
 
 							lastReportTime = now;
 							lastReportBytes = totalBytes;
@@ -239,7 +239,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 				},
 				getPart: async (start, end) => {
 					try {
-						console.log(`Getting part ${start} - ${end}`);
+						// console.log(`Getting part ${start} - ${end}`);
 						const { data } = await Axios.get<Readable>(format.url, {
 							responseType: "stream",
 							timeout: 15_000,
@@ -248,7 +248,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 								range: `bytes=${start}-${end}`,
 							},
 						});
-						console.log(`Got part ${start} - ${end}`);
+						// console.log(`Got part ${start} - ${end}`);
 						return data;
 					} catch (e) {
 						if (e instanceof AxiosError) {
@@ -306,9 +306,9 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 					reject(new Error("yt-dlp timed out"));
 				}, 25_000);
 
-				child.stderr.on("data", (chunk: Buffer) =>
-					console.log(`[YT-DLP]:`, chunk.toString()),
-				);
+				child.stderr.on("data", (chunk: Buffer) => {
+					// console.log(`[YT-DLP]:`, chunk.toString()),
+				});
 
 				let output = "";
 				child.stdout.on("data", (chunk: Buffer) => {
