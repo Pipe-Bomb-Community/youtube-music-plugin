@@ -84,7 +84,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 				key: "explicit",
 				type: "boolean",
 				supportsMultiple: false,
-				formatter: (explicit) => (explicit ? "E" : ""),
+				formatter: (explicit) => (explicit ? "Explicit" : ""),
 			},
 			{
 				key: "lyrics",

@@ -258,18 +258,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			return this.cache.getAlbumMetadata(identity);
 		}
 		if (identityId == "youtube_music_playlist_id") {
-			const meta = await this.cache.getPlaylistMetadata(identity);
-			return {
-				artists: meta.artists,
-				attributes: [
-					...(meta.attributes ?? []),
-					{
-						key: "releaseradar_exclude",
-						value: true,
-					},
-				],
-			};
-			return meta;
+			return this.cache.getPlaylistMetadata(identity);
 		}
 
 		return null;
