@@ -16,11 +16,20 @@ codec, `m3u8` protocol, or DRM. Sorts by: `abr` desc → `asr` desc → codec sc
 ## Producer
 
 - `getStream`: direct HTTP GET to `format.url` with `format.http_headers` (axios, keep-alive
-  agent). Previously this re-spawned yt-dlp (`-f <id> -o -`), which re-ran extraction and
-  added ~3s before the first audio byte.
+  agent, `Accept-Encoding: identity` so byte ranges aren't transparently compressed).
+  Previously this re-spawned yt-dlp (`-f <id> -o -`), which re-ran extraction and added ~3s
+  before the first audio byte.
 - `getPart`: direct HTTP range request to `format.url` with `format.http_headers`
-  (axios, keep-alive agent, 15 s timeout). On a 403/410/404 (expired googlevideo URL) it
-  deletes the cached format, re-resolves once via yt-dlp, and retries.
+  (axios, keep-alive agent, 15 s timeout, `Accept-Encoding: identity`). On a 403/410/404
+  (expired googlevideo URL) it deletes the cached format, re-resolves once via yt-dlp, and
+  retries.
+- **Signature-challenge fallback**: if the direct HTTP fetch is refused (403) or fails even
+  after re-resolving, `getStream`/`getPart` fall back to `yt-dlp -f <id> -o -`. High-quality
+  audio formats are served from googlevideo URLs that carry an `n=` (nsig) parameter which
+  YouTube's player JS must transform; a plain HTTP client can't do that transform (or the
+  required throttle), so the request returns 403. yt-dlp's own downloader solves the
+  challenge, so the fallback succeeds. This is slower (subprocess + possible throttle) but
+  only kicks in when the fast path fails.
 - `getDuration`: returns the `duration` from the yt-dlp JSON (memoized); the ffprobe probe
   is only a fallback for the rare case where yt-dlp reports no duration.
 - `cacheable: true`, `type: "stream"`.
@@ -44,9 +53,9 @@ dir and chmod 755 (managed). Only managed binaries get the `update-yt-dlp` task
 ## Concurrency
 
 `createDlpSession` (`src/yt-music.library-handler.ts`) caps concurrent yt-dlp invocations
-at the `concurrent-producers` config value. It only gates format resolution
-(`--dump-json`); `getStream`/`getPart` are plain HTTP and are not gated. A session frees
-when the yt-dlp process closes.
+at the `concurrent-producers` config value. It gates format resolution (`--dump-json`) and
+the signature-challenge fallback (`-f <id> -o -`); the direct-HTTP `getStream`/`getPart`
+fast path is not gated. A session frees when the yt-dlp process closes.
 
 ## Config options
 

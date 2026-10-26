@@ -7,13 +7,65 @@ import {
 	TaskRunContext,
 } from "@pipe-bomb/plugin-sdk";
 import Axios, { AxiosError } from "axios";
-import { Readable } from "stream";
+import { PassThrough, Readable } from "stream";
 import { spawn } from "child_process";
 import https from "https";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 import { CachedAudioFormat, YTMusicCache } from "./cache/ytmusic-cache.js";
 import { getMimeType, selectBestAudioFormat } from "./utils.js";
+
+/**
+ * Slices a byte stream to a single range `[start, start+length)`, destroying the
+ * source as soon as the requested bytes have been emitted.
+ */
+function streamRange(source: Readable, start: number, length: number): Readable {
+	const out = new PassThrough();
+	let position = 0;
+	let emitted = 0;
+
+	const onData = (chunk: Buffer) => {
+		const chunkStart = position;
+		const chunkEnd = position + chunk.length;
+		position = chunkEnd;
+
+		if (chunkEnd <= start) {
+			return;
+		}
+
+		const from = Math.max(0, start - chunkStart);
+		const to = Math.min(chunk.length, start + length - chunkStart);
+		if (to > from) {
+			emitted += to - from;
+			out.write(chunk.subarray(from, to));
+		}
+
+		if (emitted >= length) {
+			cleanup();
+		}
+	};
+
+	const onEnd = () => {
+		out.end();
+	};
+
+	const onError = (e: Error) => {
+		out.destroy(e);
+	};
+
+	const cleanup = () => {
+		source.off("data", onData);
+		source.off("end", onEnd);
+		source.off("error", onError);
+		source.destroy();
+		out.end();
+	};
+
+	source.on("data", onData);
+	source.on("end", onEnd);
+	source.on("error", onError);
+	return out;
+}
 
 export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
@@ -237,12 +289,75 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			responseType: "stream",
 			timeout: 15_000,
 			httpsAgent: this.httpsAgent,
+			decompress: false,
 			headers: {
 				...format.http_headers,
+				"Accept-Encoding": "identity",
 				range: `bytes=${start}-${end}`,
 			},
 		});
 		return data;
+	}
+
+	/**
+	 * Spawns yt-dlp to download a single format to stdout. Used as a fallback
+	 * when the direct HTTP fetch of `format.url` is refused: yt-dlp's downloader
+	 * solves YouTube's signature (`n`) challenge and throttling that a plain HTTP
+	 * client cannot, so it succeeds where `fetchPart`/`getStream` return 403.
+	 */
+	private async spawnYtDlpDownload(
+		videoId: string,
+		formatId: string,
+	) {
+		const [endSession, ytDlp] = await Promise.all([
+			this.createDlpSession(),
+			this.ytDlpPath,
+		]);
+
+		const args = [
+			"-f",
+			formatId,
+			"-o",
+			"-",
+			"--no-update",
+			"--downloader",
+			"native",
+		];
+		args.push(...this.buildExtractorArgs());
+		args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
+
+		const child = spawn(
+			ytDlp,
+			[...args, `https://youtube.com/watch?v=${videoId}`],
+			{
+				stdio: ["ignore", "pipe", "pipe"],
+				env: this.getEnvWithPlugins(),
+			},
+		);
+
+		child.stderr.on("data", () => {});
+		child.on("error", () => {});
+		child.on("close", () => endSession());
+
+		return child;
+	}
+
+	private async fetchStreamViaYtDlp(
+		videoId: string,
+		format: YtDlpFormat,
+	): Promise<Readable> {
+		const child = await this.spawnYtDlpDownload(videoId, format.format_id);
+		return child.stdout;
+	}
+
+	private async fetchPartViaYtDlp(
+		videoId: string,
+		format: YtDlpFormat,
+		start: number,
+		end: number,
+	): Promise<Readable> {
+		const child = await this.spawnYtDlpDownload(videoId, format.format_id);
+		return streamRange(child.stdout, start, end - start + 1);
 	}
 
 	private isExpiredStatus(e: unknown): boolean {
@@ -327,31 +442,47 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			},
 			getMetadata: async () => computeMetadata(),
 			getStream: async () => {
-				const { data } = await Axios.get<Readable>(currentFormat.url, {
-					responseType: "stream",
-					timeout: 30_000,
-					httpsAgent: this.httpsAgent,
-					headers: {
-						...currentFormat.http_headers,
-					},
-				});
-				return data;
+				try {
+					const { data } = await Axios.get<Readable>(currentFormat.url, {
+						responseType: "stream",
+						timeout: 30_000,
+						httpsAgent: this.httpsAgent,
+						decompress: false,
+						headers: {
+							...currentFormat.http_headers,
+							"Accept-Encoding": "identity",
+						},
+					});
+					return data;
+				} catch (e) {
+					// Signature challenge / bot protection: let yt-dlp fetch it.
+					return this.fetchStreamViaYtDlp(videoId, currentFormat);
+				}
 			},
 			getPart: async (start, end) => {
 				try {
 					return await this.fetchPart(currentFormat, start, end);
 				} catch (e) {
-					// The googlevideo URL expires. Re-resolve once and retry.
+					// The googlevideo URL may have expired. Re-resolve once and
+					// retry the direct HTTP fetch.
 					if (this.isExpiredStatus(e)) {
-						await this.cache.deleteAudioFormat(videoId);
-						const resolved = await this.resolveBestFormat(videoId, true);
-						currentFormat = resolved.format;
-						if (resolved.duration !== null) {
-							currentDuration = resolved.duration;
-						}
-						return await this.fetchPart(currentFormat, start, end);
+						try {
+							await this.cache.deleteAudioFormat(videoId);
+							const resolved = await this.resolveBestFormat(
+								videoId,
+								true,
+							);
+							currentFormat = resolved.format;
+							if (resolved.duration !== null) {
+								currentDuration = resolved.duration;
+							}
+							return await this.fetchPart(currentFormat, start, end);
+						} catch {}
 					}
-					throw e;
+
+					// Fall back to yt-dlp, which solves the signature (`n`)
+					// challenge that plain HTTP clients can't.
+					return this.fetchPartViaYtDlp(videoId, currentFormat, start, end);
 				}
 			},
 		};

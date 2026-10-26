@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import Innertube, { UniversalCache } from "youtubei.js";
 import { Readable } from "stream";
+import { exec } from "node:child_process";
 import { resolveYtDlp } from "@/ytdlp.js";
 
 /**
@@ -220,6 +221,63 @@ async function readStreamLimited(stream: Readable, limit: number): Promise<numbe
 			);
 		}
 	}
+
+	console.log(`\nTest 9: unreachable direct URL falls back to yt-dlp downloader (getPart)`);
+	const fallback = await cache.getAudioFormat(videoId);
+	if (!fallback?.format?.url) {
+		console.error("  SKIP: no cached format to corrupt");
+	} else {
+		// A connection-refused address is not an "expired" status, so it skips
+		// the re-resolve path and exercises the yt-dlp downloader fallback.
+		await cache.setAudioFormat(videoId, {
+			format: { ...fallback.format, url: "https://127.0.0.1:1/videoplayback" },
+			duration: fallback.duration,
+		});
+
+		const fallbackProducer = await libraryHandler.getAudioProducer(videoId, null);
+		if (!fallbackProducer || fallbackProducer.type != "stream") {
+			assert(false, "producer created with unreachable cached format");
+		} else {
+			const fallbackPart = await fallbackProducer.getPart(0, partSize - 1);
+			const fallbackBytes = await consumePart(fallbackPart);
+			assert(
+				fallbackBytes === partSize,
+				`fallback served ${fallbackBytes} bytes via yt-dlp`,
+			);
+		}
+	}
+
+	console.log(`\nTest 10: unreachable direct URL falls back to yt-dlp downloader (getStream)`);
+	const fallbackStreamFormat = await cache.getAudioFormat(videoId);
+	if (!fallbackStreamFormat?.format?.url) {
+		console.error("  SKIP: no cached format to corrupt");
+	} else {
+		await cache.setAudioFormat(videoId, {
+			format: {
+				...fallbackStreamFormat.format,
+				url: "https://127.0.0.1:1/videoplayback",
+			},
+			duration: fallbackStreamFormat.duration,
+		});
+
+		const streamProducer = await libraryHandler.getAudioProducer(videoId, null);
+		if (!streamProducer || streamProducer.type != "stream") {
+			assert(false, "producer created with unreachable cached format");
+		} else {
+			const stream = await streamProducer.getStream();
+			const streamBytes = await readStreamLimited(stream, partSize);
+			assert(
+				streamBytes >= partSize,
+				`fallback streamed ${streamBytes} bytes via yt-dlp`,
+			);
+		}
+	}
+
+	// The fallback spawns yt-dlp children; kill any stragglers so they don't
+	// keep the process alive. (Bracket pattern avoids matching this shell.)
+	await new Promise<void>((resolve) => {
+		exec(`pkill -f "yt-[d]lp" || true`, () => resolve());
+	});
 
 	console.log(`\n==== ${passed} passed, ${failed} failed ====`);
 
