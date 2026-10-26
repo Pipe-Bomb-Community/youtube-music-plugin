@@ -15,13 +15,25 @@ codec, `m3u8` protocol, or DRM. Sorts by: `abr` desc → `asr` desc → codec sc
 
 ## Producer
 
-- `getStream`: yt-dlp `-f <format_id> -o - --http-chunk-size 10M --downloader native
-  --no-update`. Note: unlike `getAudioProducer`, it does **not** pass cookies or
-  plugin-dir args.
+- `getStream`: direct HTTP GET to `format.url` with `format.http_headers` (axios, keep-alive
+  agent). Previously this re-spawned yt-dlp (`-f <id> -o -`), which re-ran extraction and
+  added ~3s before the first audio byte.
 - `getPart`: direct HTTP range request to `format.url` with `format.http_headers`
-  (axios, 15 s timeout).
-- `getDuration`: `ffprobe` on `format.url` (15 s timeout, result memoized).
+  (axios, keep-alive agent, 15 s timeout). On a 403/410/404 (expired googlevideo URL) it
+  deletes the cached format, re-resolves once via yt-dlp, and retries.
+- `getDuration`: returns the `duration` from the yt-dlp JSON (memoized); the ffprobe probe
+  is only a fallback for the rare case where yt-dlp reports no duration.
 - `cacheable: true`, `type: "stream"`.
+
+## Format resolution caching
+
+`getAudioProducer` resolves the best format once and stores it in the plugin SQLite cache
+(`audio-format:<videoId>`, 30 min TTL). Repeat plays skip the yt-dlp `--dump-json`
+subprocess entirely. See `docs/caching.md`.
+
+`prewarmFormats` (`src/yt-music.library-handler.ts`) resolves formats in the background
+(bounded by `concurrent-producers`); the ephemeral source calls it for the top tracks of
+search/album/artist results so the cache is warm before the user presses play.
 
 ## Binary resolution
 
@@ -31,9 +43,10 @@ dir and chmod 755 (managed). Only managed binaries get the `update-yt-dlp` task
 
 ## Concurrency
 
-`createDlpSession` (`src/yt-music.library-handler.ts:69`) caps concurrent yt-dlp
-invocations at the `concurrent-producers` config value. A session frees when the first
-stream chunk arrives (or the process closes) plus a 1 s grace period.
+`createDlpSession` (`src/yt-music.library-handler.ts`) caps concurrent yt-dlp invocations
+at the `concurrent-producers` config value. It only gates format resolution
+(`--dump-json`); `getStream`/`getPart` are plain HTTP and are not gated. A session frees
+when the yt-dlp process closes.
 
 ## Config options
 

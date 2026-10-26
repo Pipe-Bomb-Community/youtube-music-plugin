@@ -13,6 +13,7 @@ From `src/cache/ytmusic-cache.ts`:
 | Key | Data | TTL |
 | --- | ---- | --- |
 | `song-upnext:<videoId>` | track (with `views`, `description`, `release_date`) + albumId | 30 days |
+| `audio-format:<videoId>` | resolved audio format (`format` + `duration`) for playback | 30 min |
 | `lyrics:<videoId>` | plain-text lyrics, or `""` when none | 90 days |
 | `album:<albumId>` | album metadata (artists, attributes incl. `release_date`) | 30 days |
 | `album-tracks:<albumId>` | album track list | 7 days |
@@ -29,6 +30,11 @@ From `src/cache/ytmusic-cache.ts`:
   player microformat's `publish_date`/`upload_date`).
   (`getBasicInfo` is used instead of `getInfo` because it skips the watch-next payload
   that makes youtubei.js log parser mismatches.)
+- `audio-format:<videoId>` stores the selected yt-dlp format (direct `url`, `http_headers`,
+  `filesize`) plus the video `duration`, so repeat plays skip the yt-dlp `--dump-json`
+  subprocess. TTL is 30 min (googlevideo URLs are short-lived); `getPart` self-heals by
+  deleting the entry and re-resolving when the URL returns 403/410/404. The entry is also
+  dropped whenever `getStream`/`getPart` surface an expired URL.
 - Album `release_date` is derived from its tracks: each track's own date is resolved
   (description `Released on:`, else player-microformat upload date) and cached under
   `track-date:<videoId>`; the album date is the **most common** track date, so a single

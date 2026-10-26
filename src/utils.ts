@@ -1122,6 +1122,62 @@ export function getMimeType(format: YtDlpFormat): string {
 	}
 }
 
+/**
+ * Picks the best direct-URL audio-only format from a yt-dlp format list.
+ * Filters out video, missing audio codec, HLS manifests, and DRM; then sorts by
+ * `abr` desc → `asr` desc → codec (opus > mp4a > other) and returns the first
+ * with a usable `url`.
+ */
+export function selectBestAudioFormat(
+	formats: YtDlpFormat[],
+): YtDlpFormat | null {
+	const supportedFormats = formats
+		.filter((format) => {
+			if (!format.acodec || format.acodec == "none") {
+				return false;
+			}
+
+			if (format.vcodec && format.vcodec != "none") {
+				return false;
+			}
+
+			if (format.protocol.includes("m3u8")) {
+				return false;
+			}
+
+			if (format.has_drm) {
+				return false;
+			}
+
+			return true;
+		})
+		.sort((a, b) => {
+			const abrDiff = (b.abr ?? 0) - (a.abr ?? 0);
+			if (abrDiff) {
+				return abrDiff;
+			}
+
+			const asrDiff = (b.asr ?? 0) - (a.asr ?? 0);
+			if (asrDiff) {
+				return asrDiff;
+			}
+
+			const codecScore = (codec: string) => {
+				if (codec.includes("opus")) {
+					return 3;
+				}
+				if (codec.includes("mp4a")) {
+					return 2;
+				}
+				return 1;
+			};
+
+			return codecScore(b.acodec) - codecScore(a.acodec);
+		});
+
+	return supportedFormats.find((f) => !!f.url) ?? null;
+}
+
 export function formatNumber(number: number) {
 	return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }

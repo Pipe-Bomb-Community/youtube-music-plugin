@@ -1,6 +1,7 @@
 export interface YtDlpResponse {
 	id: string;
 	title: string;
+	duration?: number | null;
 	formats: YtDlpFormat[];
 }
 

@@ -60,6 +60,16 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		return this.libraryHandler;
 	}
 
+	private prewarm(tracks: EphemeralTrack[], limit: number) {
+		const ids = tracks
+			.map((track) => track.id)
+			.filter((id) => !!id)
+			.slice(0, limit);
+		if (ids.length) {
+			void this.libraryHandler.prewarmFormats(ids);
+		}
+	}
+
 	private forSearchResults(
 		results:
 			| (YTNodes.MusicShelf | YTNodes.MusicCardShelf | YTNodes.ItemSection)[]
@@ -202,6 +212,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 			artists,
 		};
 		deserializeAllThumbnails(response);
+		this.prewarm(tracks, 3);
 		return response;
 	}
 
@@ -241,9 +252,13 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		if (channelId) {
 			const type = await this.cache.getChannelType(channelId);
 			if (type == "artist") {
-				return this.cache.getArtistContent(channelId);
+				const content = await this.cache.getArtistContent(channelId);
+				this.prewarm(content.tracks ?? [], 5);
+				return content;
 			} else {
-				return this.cache.getUserContent(channelId);
+				const content = await this.cache.getUserContent(channelId);
+				this.prewarm(content.tracks ?? [], 5);
+				return content;
 			}
 		}
 
@@ -268,6 +283,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		albumId: string,
 	): Promise<EphemeralAlbumContent | null> {
 		const tracks = await this.cache.getAlbumTracks(albumId);
+		this.prewarm(tracks, 5);
 		return { tracks };
 	}
 
@@ -275,6 +291,7 @@ export class YTMusicEphemeralSource implements EphemeralSource {
 		playlistId: string,
 	): Promise<EphemeralAlbumContent | null> {
 		const tracks = await this.cache.getPlaylistTracks(playlistId);
+		this.prewarm(tracks, 5);
 		return { tracks };
 	}
 

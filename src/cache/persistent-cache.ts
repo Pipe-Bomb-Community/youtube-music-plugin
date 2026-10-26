@@ -15,6 +15,14 @@ export class PersistentCache {
 		await this.keyv.set(key, value, TTL);
 	}
 
+	async setWithTtl(key: string, value: any, ttl: number) {
+		await this.keyv.set(key, value, ttl);
+	}
+
+	async delete(key: string) {
+		await this.keyv.delete(key);
+	}
+
 	async get<T>(key: string): Promise<T | null> {
 		const value = await this.keyv.get(key);
 		if (typeof value == "object") {

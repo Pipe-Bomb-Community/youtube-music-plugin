@@ -23,6 +23,7 @@ import {
 	twoRowItemToAlbum,
 	upNextToEphemeralTrack,
 } from "../utils.js";
+import { YtDlpFormat } from "../types/yt-dlp.js";
 
 const HOUR = 3600 * 1000;
 const DAY = HOUR * 24;
@@ -34,6 +35,14 @@ const RELEASE_DATE_CONCURRENCY = 5;
 
 const CACHE_VERSION = "v2";
 
+const AUDIO_FORMAT_VERSION = "v1";
+const AUDIO_FORMAT_TTL = 30 * 60 * 1000;
+
+export interface CachedAudioFormat {
+	format: YtDlpFormat;
+	duration: number | null;
+}
+
 export class YTMusicCache {
 	private readonly cache: PersistentCache;
 
@@ -42,6 +51,26 @@ export class YTMusicCache {
 		private readonly innertube: Innertube,
 	) {
 		this.cache = new PersistentCache(dbFile);
+	}
+
+	private static audioFormatKey(videoId: string) {
+		return `audio-format:${AUDIO_FORMAT_VERSION}:${videoId}`;
+	}
+
+	async getAudioFormat(videoId: string): Promise<CachedAudioFormat | null> {
+		return this.cache.get<CachedAudioFormat>(YTMusicCache.audioFormatKey(videoId));
+	}
+
+	async setAudioFormat(videoId: string, value: CachedAudioFormat) {
+		await this.cache.setWithTtl(
+			YTMusicCache.audioFormatKey(videoId),
+			value,
+			AUDIO_FORMAT_TTL,
+		);
+	}
+
+	async deleteAudioFormat(videoId: string) {
+		await this.cache.delete(YTMusicCache.audioFormatKey(videoId));
 	}
 
 	private async getCachedTrackEntry(videoId: string) {
