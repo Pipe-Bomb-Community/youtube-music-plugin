@@ -9,6 +9,7 @@
 		"test:metadata": "tsx test/metadata.test.ts",
 		"test:invariants": "tsx test/format-invariants.test.ts",
 		"test:unit": "tsx test/format-selection.test.ts",
+		"test:guards": "tsx test/hang-guards.test.ts",
 		"bench:audio": "tsx test/audio-bench.ts"
 	},
 	"type": "module",

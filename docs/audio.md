@@ -22,7 +22,8 @@ codec, `m3u8` protocol, or DRM. Sorts by: `abr` desc → `asr` desc → codec sc
 - `getPart`: direct HTTP range request to `format.url` with `format.http_headers`
   (axios, keep-alive agent, 15 s timeout, `Accept-Encoding: identity`). On a 403/410/404
   (expired googlevideo URL) it deletes the cached format, re-resolves once via yt-dlp, and
-  retries.
+  retries. Response streams are wrapped with an inactivity guard so a stalled body always
+  terminates instead of leaving `finished()` pending server-side.
 - **Signature-challenge fallback**: if the direct HTTP fetch is refused (403) or fails even
   after re-resolving, `getStream`/`getPart` fall back to `yt-dlp -f <id> -o -`. High-quality
   audio formats are served from googlevideo URLs that carry an `n=` (nsig) parameter which
@@ -48,14 +49,21 @@ search/album/artist results so the cache is warm before the user presses play.
 
 `src/ytdlp.ts`: PATH first; otherwise download the latest GitHub release into the cache
 dir and chmod 755 (managed). Only managed binaries get the `update-yt-dlp` task
-(`yt-dlp -U`, registered in `src/main.ts:69`).
+(`yt-dlp -U`, registered in `src/main.ts:69`). Downloads have a 30 s inactivity timeout,
+a 10 min total timeout, and a redirect cap; `yt-dlp -U` is capped at 2 min.
 
 ## Concurrency
 
 `createDlpSession` (`src/yt-music.library-handler.ts`) caps concurrent yt-dlp invocations
-at the `concurrent-producers` config value. It gates format resolution (`--dump-json`) and
-the signature-challenge fallback (`-f <id> -o -`); the direct-HTTP `getStream`/`getPart`
-fast path is not gated. A session frees when the yt-dlp process closes.
+at the `concurrent-producers` config value (clamped to at least 1). It gates format
+resolution (`--dump-json`) and the signature-challenge fallback (`-f <id> -o -`); the
+direct-HTTP `getStream`/`getPart` fast path is not gated. A session frees when the yt-dlp
+process closes.
+
+The signature-challenge fallback has a 60 s inactivity watchdog and a 30 min total cap;
+on either, yt-dlp is killed and the returned stream is closed so the caller never waits
+forever. A queued session acquisition also fails after 2 min rather than waiting
+indefinitely.
 
 ## Config options
 

@@ -8,12 +8,18 @@ import {
 } from "@pipe-bomb/plugin-sdk";
 import Axios, { AxiosError } from "axios";
 import { PassThrough, Readable } from "stream";
-import { spawn } from "child_process";
+import { spawn, type ChildProcessByStdio } from "child_process";
 import https from "https";
 import { YtDlpFormat, YtDlpResponse } from "./types/yt-dlp.js";
 import { YTMusicConfigManager } from "./yt-music.settings.js";
 import { CachedAudioFormat, YTMusicCache } from "./cache/ytmusic-cache.js";
 import { getMimeType, selectBestAudioFormat } from "./utils.js";
+
+const DLP_SESSION_WAIT_TIMEOUT = 120_000;
+const DLP_DOWNLOAD_IDLE_TIMEOUT = 60_000;
+const DLP_DOWNLOAD_TOTAL_TIMEOUT = 30 * 60_000;
+const STREAM_IDLE_TIMEOUT = 120_000;
+const PART_IDLE_TIMEOUT = 30_000;
 
 /**
  * Slices a byte stream to a single range `[start, start+length)`, destroying the
@@ -71,7 +77,10 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	readonly id = "youtube-music";
 	private api!: LibraryHandlerApiContext;
 	private activeProducerCreations = 0;
-	private readonly producerCreationQueue: (() => void)[] = [];
+	private readonly producerCreationQueue: {
+		resolve: () => void;
+		timer: NodeJS.Timeout;
+	}[] = [];
 	private readonly httpsAgent = new https.Agent({
 		keepAlive: true,
 		maxSockets: 25,
@@ -124,29 +133,68 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		return env;
 	}
 
-	private async createDlpSession() {
-		await new Promise<void>((resolve) => {
-			if (this.activeProducerCreations < this.config.getConcurrentProducers()) {
-				resolve();
-			} else {
-				this.producerCreationQueue.push(resolve);
-			}
-		});
+	private getConcurrency() {
+		const configured = Math.floor(this.config.getConcurrentProducers());
+		return Number.isFinite(configured) && configured > 0 ? configured : 1;
+	}
 
-		this.activeProducerCreations++;
-		let completed = false;
+	private createSessionReleaser() {
+		let released = false;
 		return () => {
-			if (!completed) {
-				completed = true;
-				this.activeProducerCreations--;
-				if (
-					this.activeProducerCreations < this.config.getConcurrentProducers()
-				) {
-					const callback = this.producerCreationQueue.shift();
-					callback?.();
-				}
+			if (released) {
+				return;
+			}
+			released = true;
+			this.activeProducerCreations--;
+			while (
+				this.producerCreationQueue.length > 0 &&
+				this.activeProducerCreations < this.getConcurrency()
+			) {
+				const entry = this.producerCreationQueue.shift();
+				entry?.resolve();
 			}
 		};
+	}
+
+	private async createDlpSession(): Promise<() => void> {
+		if (this.activeProducerCreations < this.getConcurrency()) {
+			this.activeProducerCreations++;
+			return this.createSessionReleaser();
+		}
+
+		await new Promise<void>((resolve, reject) => {
+			const entry = {
+				resolve: () => {
+					clearTimeout(entry.timer);
+					this.activeProducerCreations++;
+					resolve();
+				},
+				timer: setTimeout(() => {
+					const index = this.producerCreationQueue.indexOf(entry);
+					if (index >= 0) {
+						this.producerCreationQueue.splice(index, 1);
+					}
+					reject(
+						new Error(
+							"Timed out waiting for an available yt-dlp session",
+						),
+					);
+				}, DLP_SESSION_WAIT_TIMEOUT),
+			};
+			this.producerCreationQueue.push(entry);
+		});
+
+		return this.createSessionReleaser();
+	}
+
+	private async acquireDlpSession() {
+		const endSession = await this.createDlpSession();
+		try {
+			return { endSession, ytDlp: await this.ytDlpPath };
+		} catch (e) {
+			endSession();
+			throw e;
+		}
 	}
 
 	private buildExtractorArgs(): string[] {
@@ -163,10 +211,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	}
 
 	private async runYtDlpDumpJson(videoId: string): Promise<YtDlpResponse> {
-		const [endSession, ytDlp] = await Promise.all([
-			this.createDlpSession(),
-			this.ytDlpPath,
-		]);
+		const { endSession, ytDlp } = await this.acquireDlpSession();
 		try {
 			return await new Promise<YtDlpResponse>((resolve, reject) => {
 				const args = [
@@ -259,10 +304,7 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		if (ids.length === 0) {
 			return;
 		}
-		const concurrency = Math.min(
-			Math.max(1, this.config.getConcurrentProducers()),
-			ids.length,
-		);
+		const concurrency = Math.min(this.getConcurrency(), ids.length);
 		let index = 0;
 		const worker = async () => {
 			while (true) {
@@ -280,23 +322,112 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		);
 	}
 
+	private endReadable(source: Readable | null | undefined) {
+		if (!source || source.destroyed || source.readableEnded) {
+			return;
+		}
+		try {
+			source.push(null);
+		} catch {
+			source.destroy();
+		}
+	}
+
+	/**
+	 * Wraps a readable so that it always terminates. The server consumes these
+	 * streams with `pipe()` and waits for the destination to finish, so an
+	 * upstream error or a stalled connection must still end the readable or the
+	 * server-side cache task waits forever.
+	 */
+	private guardReadable(
+		source: Readable,
+		idleMs: number,
+		onTimeout?: () => void,
+	): Readable {
+		const out = new PassThrough();
+		let timer: NodeJS.Timeout | null = null;
+		let finished = false;
+
+		const clearTimer = () => {
+			if (timer) {
+				clearTimeout(timer);
+				timer = null;
+			}
+		};
+
+		const finish = () => {
+			if (finished) {
+				return;
+			}
+			finished = true;
+			clearTimer();
+			source.off("data", onActivity);
+			if (!out.writableEnded) {
+				out.end();
+			}
+		};
+
+		const arm = () => {
+			clearTimer();
+			timer = setTimeout(() => {
+				try {
+					onTimeout?.();
+				} catch {}
+				try {
+					source.destroy();
+				} catch {}
+				finish();
+			}, idleMs);
+		};
+
+		const onActivity = () => arm();
+
+		arm();
+		source.on("data", onActivity);
+		source.once("end", finish);
+		source.once("close", finish);
+		source.once("error", finish);
+		out.once("close", () => {
+			if (finished) {
+				return;
+			}
+			finished = true;
+			clearTimer();
+			try {
+				onTimeout?.();
+			} catch {}
+			source.destroy();
+		});
+		source.pipe(out, { end: true });
+		return out;
+	}
+
 	private async fetchPart(
 		format: YtDlpFormat,
 		start: number,
 		end: number,
 	): Promise<Readable> {
-		const { data } = await Axios.get<Readable>(format.url, {
-			responseType: "stream",
-			timeout: 15_000,
-			httpsAgent: this.httpsAgent,
-			decompress: false,
-			headers: {
-				...format.http_headers,
-				"Accept-Encoding": "identity",
-				range: `bytes=${start}-${end}`,
-			},
-		});
-		return data;
+		const controller = new AbortController();
+		try {
+			const { data } = await Axios.get<Readable>(format.url, {
+				responseType: "stream",
+				timeout: 15_000,
+				signal: controller.signal,
+				httpsAgent: this.httpsAgent,
+				decompress: false,
+				headers: {
+					...format.http_headers,
+					"Accept-Encoding": "identity",
+					range: `bytes=${start}-${end}`,
+				},
+			});
+			return this.guardReadable(data, PART_IDLE_TIMEOUT, () =>
+				controller.abort(),
+			);
+		} catch (e) {
+			controller.abort();
+			throw e;
+		}
 	}
 
 	/**
@@ -308,11 +439,8 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 	private async spawnYtDlpDownload(
 		videoId: string,
 		formatId: string,
-	) {
-		const [endSession, ytDlp] = await Promise.all([
-			this.createDlpSession(),
-			this.ytDlpPath,
-		]);
+	): Promise<Readable> {
+		const { endSession, ytDlp } = await this.acquireDlpSession();
 
 		const args = [
 			"-f",
@@ -326,28 +454,118 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		args.push(...this.buildExtractorArgs());
 		args.push(...this.getPluginDirsArgs(), ...this.getCookiesArgs());
 
-		const child = spawn(
-			ytDlp,
-			[...args, `https://youtube.com/watch?v=${videoId}`],
-			{
-				stdio: ["ignore", "pipe", "pipe"],
-				env: this.getEnvWithPlugins(),
-			},
-		);
+		let child: ChildProcessByStdio<null, Readable, Readable>;
+		try {
+			child = spawn(
+				ytDlp,
+				[...args, `https://youtube.com/watch?v=${videoId}`],
+				{
+					stdio: ["ignore", "pipe", "pipe"],
+					env: this.getEnvWithPlugins(),
+				},
+			);
+		} catch (e) {
+			endSession();
+			throw e;
+		}
 
-		child.stderr.on("data", () => {});
-		child.on("error", () => {});
-		child.on("close", () => endSession());
+		const stdout = child.stdout;
+		const stream = new PassThrough();
+		let cleaned = false;
+		let idleTimer: NodeJS.Timeout | undefined;
+		let totalTimer: NodeJS.Timeout | undefined;
 
-		return child;
+		const clearTimers = () => {
+			if (idleTimer) {
+				clearTimeout(idleTimer);
+				idleTimer = undefined;
+			}
+			if (totalTimer) {
+				clearTimeout(totalTimer);
+				totalTimer = undefined;
+			}
+		};
+
+		const cleanup = () => {
+			if (cleaned) {
+				return;
+			}
+			cleaned = true;
+			clearTimers();
+			endSession();
+		};
+
+		const stopChild = () => {
+			try {
+				child.kill("SIGKILL");
+			} catch {}
+			this.endReadable(stdout);
+			this.endReadable(stream);
+			cleanup();
+		};
+
+		const resetIdle = () => {
+			if (cleaned) {
+				return;
+			}
+			if (idleTimer) {
+				clearTimeout(idleTimer);
+			}
+			idleTimer = setTimeout(stopChild, DLP_DOWNLOAD_IDLE_TIMEOUT);
+		};
+
+		try {
+			await new Promise<void>((resolve, reject) => {
+				const onSpawn = () => {
+					child.off("error", onSpawnError);
+					resolve();
+				};
+				const onSpawnError = (e: Error) => {
+					child.off("spawn", onSpawn);
+					cleanup();
+					reject(e);
+				};
+				child.once("spawn", onSpawn);
+				child.once("error", onSpawnError);
+			});
+		} catch (e) {
+			this.endReadable(stream);
+			cleanup();
+			throw e;
+		}
+
+		child.stderr.on("data", resetIdle);
+		child.on("error", () => {
+			this.endReadable(stream);
+			cleanup();
+		});
+		child.on("close", cleanup);
+		stdout.on("error", () => {
+			this.endReadable(stream);
+			cleanup();
+		});
+		stream.once("close", () => {
+			stdout.off("data", resetIdle);
+			if (child.exitCode === null && child.signalCode === null) {
+				try {
+					child.kill("SIGKILL");
+				} catch {}
+			}
+		});
+
+		stdout.pipe(stream);
+		stdout.on("data", resetIdle);
+		resetIdle();
+		totalTimer = setTimeout(stopChild, DLP_DOWNLOAD_TOTAL_TIMEOUT);
+
+		return stream;
 	}
 
 	private async fetchStreamViaYtDlp(
 		videoId: string,
 		format: YtDlpFormat,
 	): Promise<Readable> {
-		const child = await this.spawnYtDlpDownload(videoId, format.format_id);
-		return child.stdout;
+		return this.spawnYtDlpDownload(videoId, format.format_id);
 	}
 
 	private async fetchPartViaYtDlp(
@@ -356,8 +574,8 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 		start: number,
 		end: number,
 	): Promise<Readable> {
-		const child = await this.spawnYtDlpDownload(videoId, format.format_id);
-		return streamRange(child.stdout, start, end - start + 1);
+		const stream = await this.spawnYtDlpDownload(videoId, format.format_id);
+		return streamRange(stream, start, end - start + 1);
 	}
 
 	private isExpiredStatus(e: unknown): boolean {
@@ -442,10 +660,12 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 			},
 			getMetadata: async () => computeMetadata(),
 			getStream: async () => {
+				const controller = new AbortController();
 				try {
 					const { data } = await Axios.get<Readable>(currentFormat.url, {
 						responseType: "stream",
 						timeout: 30_000,
+						signal: controller.signal,
 						httpsAgent: this.httpsAgent,
 						decompress: false,
 						headers: {
@@ -453,8 +673,11 @@ export class YTMusicLibraryHandler implements LibraryHandler {
 							"Accept-Encoding": "identity",
 						},
 					});
-					return data;
+					return this.guardReadable(data, STREAM_IDLE_TIMEOUT, () =>
+						controller.abort(),
+					);
 				} catch (e) {
+					controller.abort();
 					// Signature challenge / bot protection: let yt-dlp fetch it.
 					return this.fetchStreamViaYtDlp(videoId, currentFormat);
 				}

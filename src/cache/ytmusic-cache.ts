@@ -32,6 +32,7 @@ const MONTH = DAY * 30;
 
 const RELEASE_DATE_SAMPLE = 30;
 const RELEASE_DATE_CONCURRENCY = 5;
+const MAX_PLAYLIST_CONTINUATIONS = 100;
 
 const CACHE_VERSION = "v2";
 
@@ -434,6 +435,7 @@ export class YTMusicCache {
 	): Promise<EphemeralTrack[]> {
 		let playlist = await this.innertube.music.getPlaylist(playlistId);
 		const tracks: EphemeralTrack[] = [];
+		let continuations = 0;
 
 		while (playlist) {
 			const items = playlist.contents ?? [];
@@ -453,6 +455,9 @@ export class YTMusicCache {
 			}
 
 			if (!playlist.has_continuation) {
+				break;
+			}
+			if (++continuations > MAX_PLAYLIST_CONTINUATIONS) {
 				break;
 			}
 			playlist = await playlist.getContinuation();

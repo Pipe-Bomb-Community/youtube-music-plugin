@@ -28,10 +28,16 @@ function getBinaryUrl(): string {
 	throw new Error(`No pre-built yt-dlp binary for ${platform}/${arch}`);
 }
 
+const DOWNLOAD_IDLE_TIMEOUT = 30_000;
+const DOWNLOAD_TOTAL_TIMEOUT = 10 * 60_000;
+const MAX_REDIRECTS = 5;
+
 async function findInPath(): Promise<string | null> {
 	try {
 		const cmd = process.platform === "win32" ? "where" : "which";
-		const { stdout } = await execFileAsync(cmd, ["yt-dlp"]);
+		const { stdout } = await execFileAsync(cmd, ["yt-dlp"], {
+			timeout: 10_000,
+		});
 		return stdout.trim().split("\n")[0] || null;
 	} catch {
 		return null;
@@ -41,24 +47,94 @@ async function findInPath(): Promise<string | null> {
 async function downloadFile(url: string, dest: string): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const file = createWriteStream(dest);
+		let finished = false;
+		let overallTimer: NodeJS.Timeout | undefined;
 
-		function request(target: string) {
-			get(target, (res) => {
-				if (res.statusCode === 301 || res.statusCode === 302) {
-					request(res.headers.location!);
-					return;
-				}
-				if (res.statusCode !== 200) {
-					reject(new Error(`HTTP ${res.statusCode} downloading yt-dlp`));
-					return;
-				}
-				res.pipe(file);
-				res.on("error", reject);
-				file.on("finish", () => file.close(() => resolve()));
-			}).on("error", reject);
-		}
+		const cleanup = () => {
+			if (overallTimer) {
+				clearTimeout(overallTimer);
+				overallTimer = undefined;
+			}
+		};
 
-		request(url);
+		const fail = (e: Error) => {
+			if (finished) {
+				return;
+			}
+			finished = true;
+			cleanup();
+			file.destroy();
+			reject(e);
+		};
+
+		file.on("error", fail);
+		overallTimer = setTimeout(
+			() => fail(new Error("Timed out downloading yt-dlp")),
+			DOWNLOAD_TOTAL_TIMEOUT,
+		);
+
+		const request = (target: string, redirects: number) => {
+			if (redirects > MAX_REDIRECTS) {
+				fail(new Error("Too many redirects downloading yt-dlp"));
+				return;
+			}
+
+			const req = get(
+				target,
+				{ timeout: DOWNLOAD_IDLE_TIMEOUT },
+				(res) => {
+					const status = res.statusCode ?? 0;
+					if (
+						status === 301 ||
+						status === 302 ||
+						status === 303 ||
+						status === 307 ||
+						status === 308
+					) {
+						const location = res.headers.location;
+						res.resume();
+						if (!location) {
+							fail(new Error("Redirect without a location"));
+							return;
+						}
+						request(new URL(location, target).toString(), redirects + 1);
+						return;
+					}
+					if (status !== 200) {
+						res.resume();
+						fail(new Error(`HTTP ${status} downloading yt-dlp`));
+						return;
+					}
+
+					res.on("error", fail);
+					res.on("close", () => {
+						if (!res.complete) {
+							fail(
+								new Error(
+									"Connection closed before yt-dlp download completed",
+								),
+							);
+						}
+					});
+					res.pipe(file);
+					file.once("finish", () => {
+						if (finished) {
+							return;
+						}
+						finished = true;
+						cleanup();
+						file.close((e) => (e ? reject(e) : resolve()));
+					});
+				},
+			);
+
+			req.on("timeout", () =>
+				req.destroy(new Error("Timed out downloading yt-dlp")),
+			);
+			req.on("error", fail);
+		};
+
+		request(url, 0);
 	});
 }
 
@@ -93,7 +169,9 @@ export async function updateYtDlp(
 	binaryPath: string,
 	logger: { debug(message: any): void },
 ): Promise<void> {
-	const { stdout, stderr } = await execFileAsync(binaryPath, ["-U"]);
+	const { stdout, stderr } = await execFileAsync(binaryPath, ["-U"], {
+		timeout: 120_000,
+	});
 	for (const line of [...stdout.split("\n"), ...stderr.split("\n")]) {
 		const trimmed = line.trim();
 		if (trimmed) {

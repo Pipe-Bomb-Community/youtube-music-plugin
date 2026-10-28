@@ -18,6 +18,55 @@ import {
 	releaseYouTubeiLogs,
 } from "./youtubei-log.js";
 
+function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	message: string,
+): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+		promise.then(
+			(value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			(e) => {
+				clearTimeout(timer);
+				reject(e);
+			},
+		);
+	});
+}
+
+const INNERTUBE_REQUEST_TIMEOUT = 30_000;
+
+function fetchWithTimeout(
+	input: Parameters<typeof fetch>[0],
+	init?: Parameters<typeof fetch>[1],
+): ReturnType<typeof fetch> {
+	const controller = new AbortController();
+	const outerSignal = init?.signal;
+	const onAbort = () => controller.abort(outerSignal?.reason);
+
+	if (outerSignal) {
+		if (outerSignal.aborted) {
+			onAbort();
+		} else {
+			outerSignal.addEventListener("abort", onAbort, { once: true });
+		}
+	}
+
+	const timer = setTimeout(
+		() => controller.abort(new Error("YouTube Music request timed out")),
+		INNERTUBE_REQUEST_TIMEOUT,
+	);
+
+	return fetch(input, { ...init, signal: controller.signal }).finally(() => {
+		clearTimeout(timer);
+		outerSignal?.removeEventListener("abort", onAbort);
+	});
+}
+
 export default class Plugin implements PipeBomb.Plugin {
 	private api!: PipeBomb.PluginApiContext;
 	private logger!: PipeBomb.Logger;
@@ -38,9 +87,14 @@ export default class Plugin implements PipeBomb.Plugin {
 			const ytDlpResolution = await resolveYtDlp(cacheDir);
 			const ytDlpPath = Promise.resolve(ytDlpResolution.path);
 
-			const innertube = await Innertube.create({
-				cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
-			});
+			const innertube = await withTimeout(
+				Innertube.create({
+					cache: new UniversalCache(true, path.join(cacheDir, "innertube")),
+					fetch: fetchWithTimeout,
+				}),
+				60_000,
+				"Timed out initializing YouTube Music client",
+			);
 
 			const cache = new YTMusicCache(
 				path.join(cacheDir, "cache.sqlite"),

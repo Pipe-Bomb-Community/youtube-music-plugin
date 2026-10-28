@@ -45,7 +45,10 @@ From `src/cache/ytmusic-cache.ts`:
   once.
 
 - Playlist IDs are stored with a `VL` prefix; `getPlaylistMetadata` adds it if missing
-  (`src/cache/ytmusic-cache.ts:154`).
+  (`src/cache/ytmusic-cache.ts:154`). Playlist track pagination stops after 100
+  continuations to guard against a repeated continuation token looping forever.
+- Innertube requests use a 30 s abort timeout (`fetchWithTimeout` in `src/main.ts`), so
+  metadata calls cannot hang indefinitely.
 - `getOrFind` (`src/cache/persistent-cache.ts:31`) deserializes thumbnails on read.
 - Reads are self-healing: `deserializeAllThumbnails` reports any buffer attribute stored
   without a callable `buffer` (e.g. a stale entry written before the serialization fix),

@@ -231,6 +231,7 @@ export class YTMusicAttributeSource implements AttributeSource {
 					try {
 						const { data } = await Axios.get<Buffer>(thumbnail.url, {
 							responseType: "arraybuffer",
+							timeout: 15_000,
 						});
 						return data;
 					} catch {}

@@ -11,6 +11,7 @@ the plugin), `ffmpeg` (for `ffprobe` duration probing).
 | Live metadata test | `npm run test:metadata` |
 | Manual audio test | `npm run test:audio <videoId>` |
 | Format-selection unit test (deterministic, no network) | `npm run test:unit` |
+| Stream-guard unit test (deterministic, no network) | `npm run test:guards` |
 | Format-shape invariant test (live, guards against YouTube changes) | `npm run test:invariants <videoId>` |
 | Audio timing benchmark | `npm run bench:audio <videoId>` |
 | Dev shell (bleeding-edge yt-dlp master + ffmpeg) | `nix develop` |
@@ -23,6 +24,8 @@ unit test is deterministic and network-free:
 - `test/format-selection.test.ts` (`npm run test:unit`) — pure unit test of
   `selectBestAudioFormat` against synthetic fixtures (opus vs mp4a, abr/asr
   ordering, m3u8/DRM/video exclusion, missing-URL handling).
+- `test/hang-guards.test.ts` (`npm run test:guards`) — pure unit test asserting
+  stalled/erroring streams terminate and consumer aborts destroy their source.
 - `test/format-invariants.test.ts` (`npm run test:invariants`) — runs `yt-dlp
   --dump-json` on a real video and asserts the fields the producer depends on
   (`acodec`/`vcodec`/`protocol`/`ext`/`http_headers`/`filesize`/`duration`) are
